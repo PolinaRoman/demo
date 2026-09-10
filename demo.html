@@ -1,0 +1,2115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Итоги года 26 — прототип</title>
+<style>
+
+  /* ==========================================================================
+     ШРИФТЫ (те же файлы, что использует основное приложение)
+     ========================================================================== */
+  @font-face {
+    font-family: 'X5 Sans';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('app/assets/fonts/X5-Sans_Regular.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'X5 Sans';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('app/assets/fonts/X5-Sans_Medium.woff2') format('woff2');
+  }
+  @font-face {
+    font-family: 'X5 Sans';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('app/assets/fonts/X5-Sans_Bold.woff2') format('woff2');
+  }
+
+  /* ==========================================================================
+     ПЕРЕМЕННЫЕ / СБРОС
+     ========================================================================== */
+  :root {
+    --card-radius: 0px;
+    --card-max-w: 100%;
+    --card-h: 100dvh;
+    /* Клубок, нитка и рюкзак — одна жёсткая группа: одинаковый сдвиг,
+       одинаковая длительность и кривая у всех трёх — едут «на одной нитке». */
+    --group-travel: 800px; /* запасной вариант — JS выставляет точную высоту .stage; 800px = фиксированная высота карточки на десктопе (--card-h) */
+    --group-duration: 900ms;
+    --group-easing: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: 'X5 Sans', sans-serif;
+    background: #010c04;
+  }
+
+  button {
+    font-family: inherit;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  img { display: block; max-width: none; }
+
+  /* ==========================================================================
+     VIEWPORT / CARD
+     На мобильном (<768px) карточка занимает весь экран.
+     На десктопе (>=768px) — плавающая карточка 480×800 с боковой навигацией
+     и кнопкой закрытия снаружи, на затемнённом фоне.
+     ========================================================================== */
+  .viewport {
+    position: relative;
+    z-index: 1;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .body-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background-color: #010c04;
+    transition: opacity 700ms ease;
+    pointer-events: none;
+  }
+  .body-bg.is-hidden { opacity: 0; }
+
+  .card {
+    position: relative;
+    width: 100%;
+    max-width: var(--card-max-w);
+    height: var(--card-h);
+    border-radius: var(--card-radius);
+    overflow: hidden;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .bg-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-color: #09491e;
+    opacity: 1;
+    transition: opacity 700ms ease;
+  }
+  .bg-layer.is-hidden { opacity: 0; }
+
+  .stars-layer,
+  .snow-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .stage {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ==========================================================================
+     SCREEN — экран-шаг (0 = интро, 1 = первый экран статистики, …)
+     Оба экрана смонтированы одновременно, наложены друг на друга. Сам .screen
+     больше не гасится через opacity (иначе гас бы и клубок/рюкзак внутри
+     него) — у экрана меняется только кликабельность, а видимость каждого
+     содержимого экрана управляется отдельно (.exit-fade / стата-стаггер).
+     Общие для обоих экранов элементы (шапка) визуально идентичны, поэтому
+     их постоянное наложение друг на друга незаметно.
+     ========================================================================== */
+  .screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+  }
+  .screen.is-active {
+    pointer-events: auto;
+  }
+
+  /* Быстрый уход контента экрана-донора (заголовок, Theme Controls, Down) —
+     гасится сам по себе, независимо от клубка (тот едет отдельным transform). */
+  .exit-fade {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 220ms cubic-bezier(0, 0, 0.2, 1), transform 220ms cubic-bezier(0, 0, 0.2, 1);
+  }
+  .exit-fade.is-hidden {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  /* Стаггерный «выезд снизу» контента экрана-приёмника (числа, текст, плашки,
+     пагинация) — задержку каждого элемента задаёт --reveal-delay инлайном. */
+  .reveal-stagger {
+    opacity: 0;
+    transform: translateY(20px);
+    transition:
+      opacity 300ms cubic-bezier(0, 0, 0.2, 1) var(--reveal-delay, 0ms),
+      transform 300ms cubic-bezier(0, 0, 0.2, 1) var(--reveal-delay, 0ms);
+  }
+  .reveal-stagger.is-active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ==========================================================================
+     HEAD — логотип + закрыть (мобильная версия шапки)
+     ========================================================================== */
+  .head {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px;
+    flex: 0 0 auto;
+  }
+  /* Progressive blur: фиксированный backdrop-filter + маска-градиент,
+     которая плавно «проявляет» размытие сверху вниз (как в макете). */
+  .head::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+    background-image: linear-gradient(to bottom, rgba(22, 61, 38, 0.25), rgba(22, 61, 38, 0));
+  }
+  /* Экран 0: блюр в шапке ложится поверх верхней части клубка/нитки во время
+     анимации — на этом экране эффект не нужен. */
+  .head--no-blur::before {
+    display: none;
+  }
+
+  .head__logo { height: 30px; width: 78.667px; }
+  .head__logo img { width: 100%; height: 100%; }
+
+  .head__close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+  }
+  .head__close img { width: 24px; height: 24px; }
+
+  /* десктоп: собственная кнопка "закрыть" стоит снаружи карточки */
+  .head__close--mobile-only { display: flex; }
+
+  /* ==========================================================================
+     CONTENT — заголовок + подзаголовок
+     ========================================================================== */
+  .content-item {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 767px;
+    padding: 8px 24px 0;
+    flex: 0 0 auto;
+  }
+
+  .content-inner {
+    max-width: 364px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .headline {
+    position: relative;
+    width: 100%;
+    height: 174px;
+  }
+
+  .headline__inner {
+    position: absolute;
+    left: 50%;
+    top: -9px;
+    width: 304px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .headline__top-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    margin-bottom: -8px;
+  }
+
+  .headline__line {
+    margin: 0;
+    width: 100%;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 700;
+    font-size: 44px;
+    line-height: 52px;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .headline__sign-box {
+    position: relative;
+    width: 100%;
+    height: 98px;
+  }
+  .headline__sign {
+    position: absolute;
+    left: 50%;
+    top: -3px;
+    width: 304.102px;
+    height: 102.777px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateX(-50%);
+  }
+  .headline__sign img {
+    width: 298.21px;
+    height: 72px;
+    transform: rotate(-6deg);
+    object-fit: cover;
+  }
+
+  .subtitle {
+    margin: 0;
+    width: 100%;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 24px;
+    letter-spacing: -0.48px;
+    color: #fff;
+    text-align: center;
+  }
+
+  /* ==========================================================================
+     IMAGE ITEM — клубок с нитками и спицами (анимация "Клубок")
+     ========================================================================== */
+  .image-item {
+    /* Не position:relative специально — .yarn внутри должен позиционироваться
+       не «в рамках картинки», а от нижнего края всего экрана (#screen0). */
+    z-index: 1;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    max-width: 360px;
+    padding: 24px;
+    display: flex;
+  }
+
+  .placeholder-widget {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+  }
+
+  /* Прибита к нижнему краю экрана — впритык к ней снизу (без зазора и без
+     наложения) начинается Thread_1 (см. --group-travel в :root, который
+     JS выставляет равным фактической высоте .stage). */
+  .yarn {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 264px;
+    height: 499px;
+    transform: translateX(-50%);
+    transition: transform var(--group-duration) var(--group-easing);
+  }
+  .yarn.is-away {
+    transform: translate(-50%, calc(-1 * var(--group-travel)));
+  }
+
+  .yarn__layer {
+    position: absolute;
+    pointer-events: none;
+  }
+  .yarn__layer img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  /* Tread — теперь статичная деталь (в Figma больше не анимируется отдельно
+     от клубка), поэтому просто лежит на месте без своего keyframe. */
+  .yarn__thread {
+    left: 76px;
+    top: 213px;
+    width: 112px;
+    height: 286px;
+  }
+  .yarn__thread img { object-fit: cover; }
+
+  .yarn__ball {
+    left: 32px;
+    top: 90px;
+    width: 200px;
+    height: 247.423px;
+    animation: yarnBob 2.501861s ease-in-out infinite;
+  }
+  .yarn__ball img { object-fit: cover; }
+
+  .yarn__needle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .yarn__needle img { width: 100%; height: 100%; object-fit: cover; }
+
+  .yarn__needle--left {
+    left: 36.68px;
+    top: 103.83px;
+    width: 78.695px;
+    height: 129.589px;
+    animation: needleLeft 2.501861s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  }
+  .yarn__needle--left img { width: 76px; height: 125px; margin: 0 auto; }
+
+  .yarn__needle--right {
+    left: 147.3px;
+    top: 104.6px;
+    width: 77.383px;
+    height: 125.477px;
+    animation: needleRight 2.501861s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  }
+  .yarn__needle--right img { width: 76px; height: 123px; margin: 0 auto; }
+
+  .yarn__mask {
+    left: 32px;
+    top: 90px;
+    width: 200px;
+    height: 247.423px;
+    animation: yarnBob 2.501861s ease-in-out infinite;
+  }
+  .yarn__mask img { object-fit: cover; }
+
+  @keyframes yarnBob {
+    0%, 100% { transform: translateY(0); }
+    54.046% { transform: translateY(-24px); }
+  }
+
+  @keyframes needleLeft {
+    0% { transform: translate(0, 0) rotate(-4.01deg); }
+    54.046% { transform: translate(-0.32px, -24.08px) rotate(-6.99deg); }
+    100% { transform: translate(0, 0) rotate(-4.01deg); }
+  }
+  @keyframes needleRight {
+    0% { transform: translate(0, -0.07px) rotate(-2.01deg); }
+    54.046% { transform: translate(2.84px, -23.92px) rotate(0.97deg); }
+    100% { transform: translate(0, -0.07px) rotate(-2.01deg); }
+  }
+
+  /* ==========================================================================
+     DOWN — "Листайте вниз" со shiny-text бликом
+     ========================================================================== */
+  .down {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    width: 276px;
+    height: 82px;
+    overflow: hidden;
+  }
+  .down__bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-size: cover;
+    background-position: center;
+    transition: opacity 700ms ease;
+  }
+  .down__bg.is-hidden { opacity: 0; }
+
+  .down__chevron {
+    position: absolute;
+    z-index: 1;
+    left: 50%;
+    top: 8px;
+    width: 32px;
+    height: 32px;
+    transform: translateX(-50%);
+  }
+  .down__chevron img { width: 100%; height: 100%; }
+
+  .shiny-text {
+    position: absolute;
+    z-index: 2;
+    left: 50%;
+    top: 44px;
+    width: 132px;
+    height: 24px;
+    transform: translateX(-50%);
+  }
+
+  .shiny-text__base {
+    position: absolute;
+    left: calc(50% + 1px);
+    top: 50%;
+    width: 146px;
+    height: 24px;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    -webkit-mask-image: url('demo-assets/itogi26/img/rectangle-mask.svg');
+    mask-image: url('demo-assets/itogi26/img/rectangle-mask.svg');
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: 126.388px 13.393px;
+    mask-size: 126.388px 13.393px;
+    -webkit-mask-position: 9.419px 4.77px;
+    mask-position: 9.419px 4.77px;
+  }
+
+  .shiny-text__mask {
+    position: absolute;
+    inset: 0;
+    -webkit-mask-image: url('demo-assets/itogi26/img/rectangle-mask.svg');
+    mask-image: url('demo-assets/itogi26/img/rectangle-mask.svg');
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: 126.388px 13.393px;
+    mask-size: 126.388px 13.393px;
+    -webkit-mask-position: 3.419px 4.77px;
+    mask-position: 3.419px 4.77px;
+    overflow: hidden;
+  }
+
+  .shiny-text__glint {
+    position: absolute;
+    left: 15px;
+    top: 0;
+    width: 14px;
+    height: 24px;
+    animation: shinyGlint 2.501861s linear infinite;
+  }
+
+  .shiny-text__glint-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 16px;
+    height: 24px;
+    filter: blur(5px);
+    background-image: linear-gradient(
+      -90deg,
+      rgba(0, 0, 0, 0.2) 9.375%,
+      rgba(0, 0, 0, 0.6) 17.969%,
+      rgb(0, 0, 0) 45.313%,
+      rgba(0, 0, 0, 0.6) 72.656%,
+      rgba(0, 0, 0, 0.2) 100%
+    );
+  }
+
+  @keyframes shinyGlint {
+    0%, 0.799% { transform: translateX(0); }
+    52.507%, 100% { transform: translateX(124px); }
+  }
+
+  /* ==========================================================================
+     THEME CONTROLS — переключатель фона
+     ========================================================================== */
+  .theme-controls {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .theme-controls__bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-size: cover;
+    background-position: center;
+    transition: opacity 700ms ease;
+  }
+  .theme-controls__bg.is-hidden { opacity: 0; }
+
+  .theme-dot {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+  }
+  .theme-dot input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .theme-dot__swatch {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    transition: box-shadow 200ms ease, transform 200ms ease;
+  }
+  .theme-dot--green .theme-dot__swatch { background: #1ad354; }
+  .theme-dot--blue .theme-dot__swatch { background: #6cd6f2; }
+  .theme-dot--red .theme-dot__swatch { background: #f4a3b3; }
+
+  .theme-dot input:checked + .theme-dot__swatch {
+    box-shadow: 0 0 0 2px #fff;
+  }
+
+  /* ==========================================================================
+     ЭКРАН 1 — первый экран статистики (Thread_1 + Backpack + Content + Pagination)
+     ========================================================================== */
+  /* Нитка — общий слой поверх обоих экранов: сама не едет, просто
+     проявляется на время перехода и видна весь экран 1, визуально связывая
+     клубок и рюкзак. На состоянии покоя экрана 0 скрыта, чтобы не резать
+     заголовок. */
+  .thread-bg {
+    position: absolute;
+    z-index: 0;
+    left: 50%;
+    top: 0;
+    width: 112px;
+    height: 100%;
+    overflow: hidden;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  /* 3 состояния «бусины на нитке»: below (ещё не доехала, по умолчанию) →
+     rest (.is-active, стоит на месте) → above (.is-above, укатилась дальше
+     вверх — экран проехали и он больше не текущий). */
+  .thread-bg__motion {
+    width: 100%;
+    height: 100%;
+    transform: translateY(var(--group-travel));
+    transition: transform var(--group-duration) var(--group-easing);
+  }
+  .thread-bg__motion.is-active {
+    transform: translateY(0);
+  }
+  .thread-bg__motion.is-above {
+    transform: translateY(calc(-1 * var(--group-travel)));
+  }
+  .thread-bg img { width: 100%; height: 100%; object-fit: cover; }
+  /* Thread_4 в макете — короткая нитка с фиксированной высотой 208px
+     (не растянута на всю высоту .stage, как нитки 1–3). */
+  .thread-bg--short { height: 208px; }
+
+  .stats-image-item {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    padding: 24px;
+    display: flex;
+  }
+  .stats-placeholder {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+  }
+
+  .stats-image {
+    position: absolute;
+    left: calc(50% - 8.8px);
+    top: calc(50% - 5.75px);
+    width: 336.436px;
+    height: 330.5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%);
+  }
+  .stats-image__motion {
+    transform: translateY(var(--group-travel));
+    transition: transform var(--group-duration) var(--group-easing);
+  }
+  .stats-image__motion.is-active {
+    transform: translateY(0);
+  }
+  .stats-image__motion.is-above {
+    transform: translateY(calc(-1 * var(--group-travel)));
+  }
+  /* Микро-инерция при остановке: лёгкий доворот и обратно, будто рюкзак
+     качнулся на нитке. Запускается JS-ом ровно в момент конца проезда. */
+  .stats-image__frame.is-landing {
+    animation: backpackWobble 150ms ease-out;
+  }
+  @keyframes backpackWobble {
+    0% { rotate: 0deg; }
+    50% { rotate: 1.5deg; }
+    100% { rotate: 0deg; }
+  }
+  .stats-image__frame {
+    position: relative;
+    width: 311px;
+    height: 304.468px;
+    overflow: hidden;
+    transform: rotate(5.02deg);
+  }
+  .stats-image__frame img {
+    position: absolute;
+    left: 0;
+    top: -2.15%;
+    width: 100%;
+    height: 102.15%;
+    object-fit: cover;
+  }
+
+  .stats-blur {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 380px;
+    -webkit-backdrop-filter: blur(34px);
+    backdrop-filter: blur(34px);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    background-image: linear-gradient(
+      180deg,
+      rgba(19, 67, 39, 0) 0%,
+      rgba(19, 67, 39, 0.038) 25%,
+      rgba(19, 67, 39, 0.192) 40%,
+      rgba(19, 67, 39, 0.32) 100%
+    );
+    pointer-events: none;
+  }
+
+  .stats-content {
+    position: relative;
+    z-index: 2;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+    width: 100%;
+    max-width: 767px;
+    padding: 24px;
+  }
+  .stats-content__group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    width: 100%;
+    max-width: 364px;
+  }
+  .stats-text-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+  }
+  .stats-number {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    text-align: center;
+  }
+  .stats-number__value {
+    margin: 0;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 700;
+    font-size: 44px;
+    line-height: 52px;
+    letter-spacing: -1.44px;
+    color: #fff;
+  }
+  .stats-number__label {
+    margin: 0;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 500;
+    font-size: 24px;
+    line-height: 32px;
+    letter-spacing: -0.64px;
+    color: #fff;
+  }
+  .stats-text {
+    margin: 0;
+    width: 100%;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 24px;
+    letter-spacing: -0.48px;
+    color: #fff;
+    text-align: center;
+  }
+  .stats-text strong { font-weight: 500; }
+
+  .stats-banner {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    width: 100%;
+  }
+  .stats-pill {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.3);
+    -webkit-backdrop-filter: blur(62px);
+    backdrop-filter: blur(62px);
+  }
+  .stats-pill__icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .stats-pill__icon img { width: 100%; height: 100%; }
+  .stats-pill__text {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .stats-pill__value {
+    margin: 0;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 32px;
+    letter-spacing: -0.64px;
+    color: #fff;
+  }
+  .stats-pill__label {
+    margin: 0;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 18px;
+    letter-spacing: -0.32px;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  /* Плашка со строкой «число + слово/валюта на одной строке» (пилюли экрана 2)
+     и её частные модификаторы — переиспользуют .stats-pill как контейнер. */
+  .stats-pill__row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 32px;
+    letter-spacing: -0.64px;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .stats-pill__row--between {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .stats-pill__unit {
+    font-size: 18px;
+    line-height: 24px;
+    letter-spacing: -0.48px;
+    font-weight: 700;
+  }
+  .stats-pill__strike {
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.7);
+    text-decoration: line-through;
+  }
+  .stats-pill__trend {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .stats-pill__trend img { width: 100%; height: 100%; }
+
+  /* ==========================================================================
+     ЭКРАН 2 — второй экран статистики (кофейные зёрна + кружка)
+     ========================================================================== */
+  .stats2-image-item {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    padding: 24px;
+    display: flex;
+  }
+  .stats2-placeholder {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+  }
+  .stats2-scene__motion {
+    position: absolute;
+    inset: 0;
+    transform: translateY(var(--group-travel));
+    transition: transform var(--group-duration) var(--group-easing);
+  }
+  .stats2-scene__motion.is-active {
+    transform: translateY(0);
+  }
+  .stats2-scene__motion.is-above {
+    transform: translateY(calc(-1 * var(--group-travel)));
+  }
+
+  .stats2-beans {
+    position: absolute;
+    left: calc(50% - 0.5px);
+    top: calc(50% + 47px);
+    width: 374px;
+    height: 392px;
+    transform: translate(-50%, -50%);
+  }
+  .stats2-bean {
+    position: absolute;
+    pointer-events: none;
+  }
+  .stats2-bean img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .stats2-bean--1 { left: -31.47px; top: 5px; width: 114.149px; height: 99px; }
+  .stats2-bean--2 { left: 7.53px; top: 186px; width: 71.488px; height: 62px; }
+  .stats2-bean--3-wrap {
+    position: absolute;
+    left: 285.53px;
+    top: 107.14px;
+    width: 55.479px;
+    height: 51.317px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stats2-bean--3 {
+    position: static;
+    width: 46.121px;
+    height: 40px;
+    transform: rotate(-16.27deg);
+  }
+  .stats2-bean--4 { left: 221.53px; top: 303px; width: 114.149px; height: 99px; }
+
+  .stats2-cup {
+    position: absolute;
+    left: calc(50% - 0.96px);
+    top: calc(50% + 16.72px);
+    width: 380.018px;
+    height: 375.448px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%);
+  }
+  .stats2-cup__frame {
+    position: relative;
+    width: 348px;
+    height: 342.905px;
+    overflow: hidden;
+    transform: rotate(5.64deg);
+  }
+  .stats2-cup__frame img { width: 100%; height: 100%; object-fit: cover; }
+
+  .stats2-blur {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 380px;
+    -webkit-backdrop-filter: blur(34px);
+    backdrop-filter: blur(34px);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    background-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.038) 25%,
+      rgba(0, 0, 0, 0.192) 40%,
+      rgba(0, 0, 0, 0.32) 100%
+    );
+    pointer-events: none;
+  }
+
+  .stats2-heading {
+    margin: 0;
+    width: 100%;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 500;
+    font-size: 24px;
+    line-height: 32px;
+    letter-spacing: -0.64px;
+    color: #fff;
+    text-align: center;
+  }
+  .stats2-subheading {
+    margin: 0;
+    width: 100%;
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 24px;
+    letter-spacing: -0.48px;
+    color: #fff;
+    text-align: center;
+  }
+
+  .stats2-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  .stats2-banner-row {
+    display: flex;
+    gap: 9px;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  /* ==========================================================================
+     ЭКРАН 3 — третий экран статистики (сервис «Пакет»)
+     ========================================================================== */
+  .stats3-image-item {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    padding: 24px;
+    display: flex;
+  }
+  .stats3-placeholder {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+  }
+  .stats3-scene__motion {
+    position: absolute;
+    inset: 0;
+    transform: translateY(var(--group-travel));
+    transition: transform var(--group-duration) var(--group-easing);
+  }
+  .stats3-scene__motion.is-active {
+    transform: translateY(0);
+  }
+  .stats3-scene__motion.is-above {
+    transform: translateY(calc(-1 * var(--group-travel)));
+  }
+
+  .stats3-paket {
+    position: absolute;
+    left: calc(50% + 0.2px);
+    top: calc(50% - 15.86px);
+    width: 297.432px;
+    height: 290.261px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translate(-50%, -50%);
+  }
+  .stats3-paket__frame {
+    position: relative;
+    width: 256px;
+    height: 247px;
+    overflow: hidden;
+    transform: rotate(-10.71deg);
+  }
+  .stats3-paket__frame img { width: 100%; height: 100%; object-fit: cover; }
+
+  .stats3-blur {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 380px;
+    -webkit-backdrop-filter: blur(34px);
+    backdrop-filter: blur(34px);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    background-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.038) 25%,
+      rgba(0, 0, 0, 0.192) 40%,
+      rgba(0, 0, 0, 0.32) 100%
+    );
+    pointer-events: none;
+  }
+
+  .stats3-points {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    width: 100%;
+  }
+  .stats3-points__icon {
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+  }
+  .stats3-points__icon img { width: 100%; height: 100%; }
+
+  /* ==========================================================================
+     ЭКРАН 4 — последний экран статистики (свитер)
+     ========================================================================== */
+  .stats4-image-item {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    padding: 24px;
+    display: flex;
+  }
+  .stats4-placeholder {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+  }
+  .stats4-scene__motion {
+    position: absolute;
+    inset: 0;
+    transform: translateY(var(--group-travel));
+    transition: transform var(--group-duration) var(--group-easing);
+  }
+  .stats4-scene__motion.is-active {
+    transform: translateY(0);
+  }
+  .stats4-scene__motion.is-above {
+    transform: translateY(calc(-1 * var(--group-travel)));
+  }
+
+  .stats4-sweater {
+    position: absolute;
+    left: 50%;
+    top: calc(50% + 25px);
+    width: 459px;
+    height: 448px;
+    transform: translate(-50%, -50%);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .stats4-sweater img {
+    position: absolute;
+    left: 0;
+    top: -4.74%;
+    width: 100%;
+    height: 107.46%;
+    max-width: none;
+  }
+
+  .stats4-blur {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 380px;
+    -webkit-backdrop-filter: blur(34px);
+    backdrop-filter: blur(34px);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
+    background-image: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.038) 25%,
+      rgba(0, 0, 0, 0.192) 40%,
+      rgba(0, 0, 0, 0.32) 100%
+    );
+    pointer-events: none;
+  }
+
+  /* Общий для всех экранов статистики элемент (не привязан к конкретному
+     .screen) — просто появляется начиная с экрана 1 и остаётся видимым. */
+  .pagination {
+    position: absolute;
+    z-index: 2;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 300ms ease;
+  }
+  .pagination.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .pagination__motion {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .pagination__dot {
+    width: 14px;
+    height: 14px;
+    background-image: url('demo-assets/itogi26/img/dot-inactive.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    transition: opacity 250ms ease;
+  }
+  .pagination__dot.is-active {
+    background-image: url('demo-assets/itogi26/img/dot-active.svg');
+  }
+
+  /* ==========================================================================
+     ДЕСКТОП-ХРОМ: боковая навигация и кнопка закрытия карточки
+     ========================================================================== */
+  .side-nav {
+    display: none;
+  }
+  .close-btn-desktop {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    -webkit-backdrop-filter: blur(62px);
+    backdrop-filter: blur(62px);
+    transition: background 200ms ease;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    -webkit-backdrop-filter: blur(62px);
+    backdrop-filter: blur(62px);
+    transition: background 200ms ease;
+  }
+  .nav-btn:hover:not(:disabled),
+  .close-btn-desktop:hover { background: rgba(255, 255, 255, 0.3); }
+  .nav-btn:disabled {
+    background: rgba(255, 255, 255, 0.1);
+    cursor: default;
+  }
+  .nav-btn img,
+  .close-btn-desktop img { width: 24px; height: 24px; }
+
+  /* ==========================================================================
+     ПАДАЮЩИЙ СНЕГ И ЗВЁЗДЫ (не зависят от темы)
+     ========================================================================== */
+  .star {
+    position: absolute;
+    background-repeat: no-repeat;
+    background-size: contain;
+    will-change: opacity, transform;
+    animation-name: twinkle;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+  @keyframes twinkle {
+    0% { opacity: var(--min-op); transform: scale(0.85); }
+    50% { opacity: var(--max-op); transform: scale(1.15); }
+    100% { opacity: var(--min-op); transform: scale(0.85); }
+  }
+
+  .snowflake {
+    position: absolute;
+    top: -40px;
+    will-change: transform;
+    animation-name: fall;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+  .snowflake-inner {
+    width: 100%;
+    height: 100%;
+    background-repeat: no-repeat;
+    background-size: contain;
+    animation-name: sway, spin;
+    animation-timing-function: ease-in-out, linear;
+    animation-iteration-count: infinite, infinite;
+  }
+  @keyframes fall {
+    0% { transform: translateY(-5vh); }
+    100% { transform: translateY(105vh); }
+  }
+  @keyframes sway {
+    0%, 100% { margin-left: calc(var(--sway) * -1); }
+    50% { margin-left: var(--sway); }
+  }
+  @keyframes spin {
+    0% { rotate: 0deg; }
+    100% { rotate: 360deg; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .star, .snowflake, .snowflake-inner,
+    .yarn__layer, .yarn__needle, .shiny-text__glint {
+      animation: none !important;
+    }
+  }
+
+  /* ==========================================================================
+     ДЕСКТОП: >=768px — плавающая карточка вместо fullscreen
+     ========================================================================== */
+  @media (min-width: 768px) {
+    :root {
+      --card-radius: 24px;
+      --card-max-w: 480px;
+      --card-h: min(800px, 90vh);
+    }
+
+    .viewport { padding: 40px; gap: 24px; }
+
+    .card { box-shadow: 0 40px 120px rgba(0, 0, 0, 0.45); }
+
+    .head { justify-content: center; }
+    .head__close--mobile-only { display: none; }
+
+    .side-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .close-btn-desktop {
+      display: flex;
+      position: fixed;
+      top: 32px;
+      right: 32px;
+      z-index: 10;
+    }
+
+    .down { display: none; }
+
+    .theme-controls {
+      margin-bottom: 40px;
+      padding: 16px;
+      gap: 16px;
+    }
+    .theme-dot { width: 40px; height: 40px; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="body-bg" id="bodyBgA"></div>
+  <div class="body-bg is-hidden" id="bodyBgB"></div>
+
+  <button class="close-btn-desktop" type="button" aria-label="Закрыть">
+    <img src="demo-assets/itogi26/img/close.svg" alt="" />
+  </button>
+
+  <div class="viewport">
+    <div class="card" id="card">
+      <div class="bg-layer" id="bgA"></div>
+      <div class="bg-layer is-hidden" id="bgB"></div>
+      <div class="stars-layer" id="starsLayer"></div>
+      <div class="snow-layer" id="snowLayer"></div>
+
+      <div class="stage">
+        <div class="thread-bg">
+          <div class="thread-bg__motion" id="thread1Motion">
+            <img src="demo-assets/itogi26/img/thread-1.png" alt="" />
+          </div>
+        </div>
+        <div class="thread-bg">
+          <div class="thread-bg__motion" id="thread2Motion">
+            <img src="demo-assets/itogi26/img/thread-2.png" alt="" />
+          </div>
+        </div>
+        <div class="thread-bg">
+          <div class="thread-bg__motion" id="thread3Motion">
+            <img src="demo-assets/itogi26/img/thread-3.png" alt="" />
+          </div>
+        </div>
+        <div class="thread-bg thread-bg--short">
+          <div class="thread-bg__motion" id="thread4Motion">
+            <img src="demo-assets/itogi26/img/thread-4.png" alt="" />
+          </div>
+        </div>
+
+        <nav class="pagination" id="pagination" aria-hidden="true">
+          <div class="pagination__motion" id="paginationMotion">
+            <span class="pagination__dot is-active"></span>
+            <span class="pagination__dot"></span>
+            <span class="pagination__dot"></span>
+            <span class="pagination__dot"></span>
+          </div>
+        </nav>
+
+        <section class="screen is-active" id="screen0">
+        <header class="head head--no-blur">
+          <div class="head__logo">
+            <img src="demo-assets/itogi26/img/x5-club-logo.svg" alt="X5 Клуб" />
+          </div>
+          <button class="head__close head__close--mobile-only" type="button" aria-label="Закрыть">
+            <img src="demo-assets/itogi26/img/close.svg" alt="" />
+          </button>
+        </header>
+
+        <div class="content-item exit-fade" id="screen0Content">
+          <div class="content-inner">
+            <div class="headline">
+              <div class="headline__inner">
+                <div class="headline__top-group">
+                  <p class="headline__line">Итоги 2026</p>
+                  <div class="headline__sign-box">
+                    <div class="headline__sign">
+                      <img src="demo-assets/itogi26/img/svyazani-sign.png" alt="СВЯЗАНЫ" />
+                    </div>
+                  </div>
+                </div>
+                <p class="headline__line">с вами!</p>
+              </div>
+            </div>
+            <p class="subtitle">Вспомним, как прошёл год и свяжем новогодний свитер вместе?</p>
+          </div>
+        </div>
+
+        <div class="image-item">
+          <div class="placeholder-widget">
+            <div class="yarn">
+              <div class="yarn__layer yarn__thread">
+                <img src="demo-assets/itogi26/img/tread.png" alt="" />
+              </div>
+              <div class="yarn__layer yarn__ball">
+                <img src="demo-assets/itogi26/img/yarn-ball.png" alt="Клубок ниток" />
+              </div>
+              <div class="yarn__layer yarn__needle yarn__needle--left">
+                <img src="demo-assets/itogi26/img/needle-left.png" alt="" />
+              </div>
+              <div class="yarn__layer yarn__needle yarn__needle--right">
+                <img src="demo-assets/itogi26/img/needle-right.png" alt="" />
+              </div>
+              <div class="yarn__layer yarn__mask">
+                <img src="demo-assets/itogi26/img/mask-right.png" alt="" />
+              </div>
+              <div class="yarn__layer yarn__mask">
+                <img src="demo-assets/itogi26/img/mask-left.png" alt="" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-controls exit-fade" id="screen0Controls" role="radiogroup" aria-label="Тема оформления">
+          <div class="theme-controls__bg" id="controlsBgA"></div>
+          <div class="theme-controls__bg is-hidden" id="controlsBgB"></div>
+          <label class="theme-dot theme-dot--green">
+            <input type="radio" name="theme" value="green" checked />
+            <span class="theme-dot__swatch"></span>
+          </label>
+          <label class="theme-dot theme-dot--blue">
+            <input type="radio" name="theme" value="blue" />
+            <span class="theme-dot__swatch"></span>
+          </label>
+          <label class="theme-dot theme-dot--red">
+            <input type="radio" name="theme" value="red" />
+            <span class="theme-dot__swatch"></span>
+          </label>
+        </div>
+
+        <button class="down exit-fade" id="screen0Down" type="button">
+          <div class="down__bg" id="downBgA"></div>
+          <div class="down__bg is-hidden" id="downBgB"></div>
+          <div class="down__chevron">
+            <img src="demo-assets/itogi26/img/down-chevron.svg" alt="" />
+          </div>
+          <div class="shiny-text">
+            <div class="shiny-text__base"></div>
+            <div class="shiny-text__mask">
+              <div class="shiny-text__glint">
+                <div class="shiny-text__glint-bar"></div>
+              </div>
+            </div>
+          </div>
+        </button>
+        </section>
+
+        <section class="screen" id="screen1">
+          <header class="head">
+            <div class="head__logo">
+              <img src="demo-assets/itogi26/img/x5-club-logo.svg" alt="X5 Клуб" />
+            </div>
+            <button class="head__close head__close--mobile-only" type="button" aria-label="Закрыть">
+              <img src="demo-assets/itogi26/img/close.svg" alt="" />
+            </button>
+          </header>
+
+          <div class="stats-image-item">
+            <div class="stats-placeholder">
+              <div class="stats-image">
+                <div class="stats-image__motion" id="statsImageMotion">
+                  <div class="stats-image__frame">
+                    <img src="demo-assets/itogi26/img/backpack.png" alt="Рюкзак с продуктами" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats-blur"></div>
+
+          <div class="stats-content exit-fade" id="screen1Content">
+            <div class="stats-content__group">
+              <div class="stats-text-container">
+                <div class="stats-number">
+                  <p class="stats-number__value reveal-stagger" style="--reveal-delay: 800ms">23 часа</p>
+                  <p class="stats-number__label reveal-stagger" style="--reveal-delay: 860ms">сэкономили с доставкой</p>
+                </div>
+                <p class="stats-text reveal-stagger" style="--reveal-delay: 920ms">
+                  Поручили нам тяжесть — суммарный вес доставок <strong>335 кг</strong>! Это целых
+                  <strong>54 мешков</strong> мандаринов
+                </p>
+              </div>
+              <div class="stats-banner">
+                <div class="stats-pill reveal-stagger" style="--reveal-delay: 980ms">
+                  <div class="stats-pill__icon">
+                    <img src="demo-assets/itogi26/img/tc5-icon.svg" alt="" />
+                  </div>
+                  <div class="stats-pill__text">
+                    <p class="stats-pill__value">76</p>
+                    <p class="stats-pill__label">доставок</p>
+                  </div>
+                </div>
+                <div class="stats-pill reveal-stagger" style="--reveal-delay: 1040ms">
+                  <div class="stats-pill__icon">
+                    <img src="demo-assets/itogi26/img/tcx-icon.svg" alt="" />
+                  </div>
+                  <div class="stats-pill__text">
+                    <p class="stats-pill__value">34</p>
+                    <p class="stats-pill__label">доставки</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen" id="screen2">
+          <header class="head">
+            <div class="head__logo">
+              <img src="demo-assets/itogi26/img/x5-club-logo.svg" alt="X5 Клуб" />
+            </div>
+            <button class="head__close head__close--mobile-only" type="button" aria-label="Закрыть">
+              <img src="demo-assets/itogi26/img/close.svg" alt="" />
+            </button>
+          </header>
+
+          <div class="stats2-image-item">
+            <div class="stats2-placeholder">
+              <div class="stats2-scene__motion" id="stats2SceneMotion">
+                <div class="stats2-beans">
+                  <div class="stats2-bean stats2-bean--1">
+                    <img src="demo-assets/itogi26/img/coffee-4.png" alt="" />
+                  </div>
+                  <div class="stats2-bean stats2-bean--2">
+                    <img src="demo-assets/itogi26/img/coffee-2.png" alt="" />
+                  </div>
+                  <div class="stats2-bean--3-wrap">
+                    <div class="stats2-bean stats2-bean--3">
+                      <img src="demo-assets/itogi26/img/coffee-3.png" alt="" />
+                    </div>
+                  </div>
+                  <div class="stats2-bean stats2-bean--4">
+                    <img src="demo-assets/itogi26/img/coffee-4.png" alt="" />
+                  </div>
+                </div>
+                <div class="stats2-cup">
+                  <div class="stats2-cup__frame">
+                    <img src="demo-assets/itogi26/img/cup.png" alt="Кружка «Пятёрочка Кафе»" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats2-blur"></div>
+
+          <div class="stats-content exit-fade" id="screen2Content">
+            <div class="stats-content__group">
+              <div class="stats-text-container">
+                <p class="stats2-heading reveal-stagger" style="--reveal-delay: 800ms">Вы покорили кофейный олимп «Пятёрочки»!</p>
+                <p class="stats2-subheading reveal-stagger" style="--reveal-delay: 860ms">Абонемент сработал на все 100%</p>
+              </div>
+              <div class="stats2-banner">
+                <div class="stats2-banner-row">
+                  <div class="stats-pill reveal-stagger" style="--reveal-delay: 920ms">
+                    <div class="stats-pill__text">
+                      <div class="stats-pill__row">
+                        <span>52</span>
+                        <span class="stats-pill__unit">чашки</span>
+                      </div>
+                      <p class="stats-pill__label">ароматного кофе</p>
+                    </div>
+                  </div>
+                  <div class="stats-pill reveal-stagger" style="--reveal-delay: 970ms">
+                    <div class="stats-pill__text">
+                      <div class="stats-pill__row">
+                        <span>42</span>
+                        <span class="stats-pill__strike">99</span>
+                        <span>₽</span>
+                      </div>
+                      <p class="stats-pill__label">средняя цена чашки</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="stats2-banner-row">
+                  <div class="stats-pill reveal-stagger" style="--reveal-delay: 1020ms">
+                    <div class="stats-pill__text">
+                      <div class="stats-pill__row">
+                        <span>15 000</span>
+                        <span class="stats-pill__unit">₽</span>
+                      </div>
+                      <p class="stats-pill__label">потратили с абонементом</p>
+                    </div>
+                  </div>
+                  <div class="stats-pill reveal-stagger" style="--reveal-delay: 1070ms">
+                    <div class="stats-pill__text" style="width: 100%">
+                      <div class="stats-pill__row stats-pill__row--between">
+                        <span style="display: inline-flex; align-items: baseline; gap: 6px">
+                          <span>1 500</span>
+                          <span class="stats-pill__unit">₽</span>
+                        </span>
+                        <span class="stats-pill__trend">
+                          <img src="demo-assets/itogi26/img/trend-arrow.svg" alt="" />
+                        </span>
+                      </div>
+                      <p class="stats-pill__label">чистая выгода с абонементом</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen" id="screen3">
+          <header class="head">
+            <div class="head__logo">
+              <img src="demo-assets/itogi26/img/x5-club-logo.svg" alt="X5 Клуб" />
+            </div>
+            <button class="head__close head__close--mobile-only" type="button" aria-label="Закрыть">
+              <img src="demo-assets/itogi26/img/close.svg" alt="" />
+            </button>
+          </header>
+
+          <div class="stats3-image-item">
+            <div class="stats3-placeholder">
+              <div class="stats3-scene__motion" id="stats3SceneMotion">
+                <div class="stats3-paket">
+                  <div class="stats3-paket__frame">
+                    <img src="demo-assets/itogi26/img/paket.png" alt="Сервис «Пакет»" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats3-blur"></div>
+
+          <div class="stats-content exit-fade" id="screen3Content">
+            <div class="stats-content__group">
+              <div class="stats-text-container">
+                <div class="stats3-points reveal-stagger" style="--reveal-delay: 800ms">
+                  <p class="stats-number__value" style="margin: 0">5 000</p>
+                  <div class="stats3-points__icon">
+                    <img src="demo-assets/itogi26/img/points-icon.svg" alt="" />
+                  </div>
+                </div>
+                <p class="stats2-heading reveal-stagger" style="--reveal-delay: 860ms">Накопили с сервисом «Пакет» за год</p>
+                <p class="stats2-subheading reveal-stagger" style="--reveal-delay: 920ms">
+                  А ещё у вас было по 3 бесплатных доставки в «Пятёрочке» и «Перекрёстке» каждый месяц
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen" id="screen4">
+          <header class="head">
+            <div class="head__logo">
+              <img src="demo-assets/itogi26/img/x5-club-logo.svg" alt="X5 Клуб" />
+            </div>
+            <button class="head__close head__close--mobile-only" type="button" aria-label="Закрыть">
+              <img src="demo-assets/itogi26/img/close.svg" alt="" />
+            </button>
+          </header>
+
+          <div class="stats4-image-item">
+            <div class="stats4-placeholder">
+              <div class="stats4-scene__motion" id="stats4SceneMotion">
+                <div class="stats4-sweater">
+                  <img src="demo-assets/itogi26/img/sweater.png" alt="Свитер" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats4-blur"></div>
+
+          <div class="stats-content exit-fade" id="screen4Content">
+            <div class="stats-content__group">
+              <div class="stats-text-container">
+                <p class="stats2-heading reveal-stagger" style="--reveal-delay: 800ms">Готово! Связали, чтобы вам было тепло 💚</p>
+                <p class="stats2-subheading reveal-stagger" style="--reveal-delay: 860ms">
+                  У вас получился уникальный свитер — украсили его вышивкой с вашими любимыми категориями
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <nav class="side-nav" aria-hidden="true">
+      <button class="nav-btn" type="button" aria-label="Предыдущий экран" disabled>
+        <img src="demo-assets/itogi26/img/chevron-up.svg" alt="" id="navUpIcon" />
+      </button>
+      <button class="nav-btn" type="button" aria-label="Следующий экран">
+        <img src="demo-assets/itogi26/img/chevron-down.svg" alt="" id="navDownIcon" />
+      </button>
+    </nav>
+  </div>
+
+<script>
+/* ============================================================================
+   ТЕМЫ ФОНА
+   Тема 1 (зелёная) — точные значения из присланного исходника (snow_background_preview.html).
+   Темы 2 (голубая) и 3 (розовая) — приближены по скриншотам макета в Figma
+   (в файле нет отдельных переменных для этих градиентов).
+   ============================================================================ */
+const THEMES = {
+  green: { base: '#09491e', in: '#1ad354', out: '#125728', shade: '#193426' },
+  blue:  { base: '#0190b6', in: '#6ccce5', out: '#42bad8', shade: '#056d81' },
+  red:   { base: '#db3f43', in: '#d97579', out: '#da5f62', shade: '#a32f2e' }
+};
+
+function hexToRgba(hex, alpha) {
+  const v = hex.replace('#', '');
+  const r = parseInt(v.substring(0, 2), 16);
+  const g = parseInt(v.substring(2, 4), 16);
+  const b = parseInt(v.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function gradientFor(theme) {
+  const t = THEMES[theme];
+  return [
+    `linear-gradient(to bottom, ${t.shade} 0%, ${hexToRgba(t.shade, 0.5)} 30%, ${hexToRgba(t.shade, 0.1)} 55%, ${hexToRgba(t.shade, 0)} 75%)`,
+    `radial-gradient(ellipse 70% 65% at 50% 45%, ${t.in} 0%, ${t.out} 70%, ${t.base} 100%)`
+  ].join(', ');
+}
+
+const BODY_GRADIENTS = {
+  green: {
+    image: 'radial-gradient(99.52% 46.91% at 50% 53.09%, rgba(26, 211, 84, 0.08) 0%, rgba(18, 87, 40, 0.08) 100%)',
+    base: '#010C04'
+  },
+  blue: {
+    image: 'radial-gradient(99.52% 46.91% at 50% 53.09%, rgba(90, 220, 255, 0.16) 0%, rgba(11, 103, 128, 0.16) 100%)',
+    base: '#000F13'
+  },
+  red: {
+    image: 'radial-gradient(99.52% 46.91% at 50% 53.09%, rgba(255, 184, 186, 0.12) 0%, rgba(220, 65, 68, 0.12) 100%)',
+    base: '#080101'
+  }
+};
+
+const ASSET_THEMES = {
+  green: {
+    down: 'demo-assets/itogi26/img/down-bg-green.png',
+    controls: 'demo-assets/itogi26/img/control-bg-green.png'
+  },
+  blue: {
+    down: 'demo-assets/itogi26/img/down-bg-blue.png',
+    controls: 'demo-assets/itogi26/img/control-bg-blue.png'
+  },
+  red: {
+    down: 'demo-assets/itogi26/img/down-bg-red.png',
+    controls: 'demo-assets/itogi26/img/control-bg-red.png'
+  }
+};
+
+function createCrossfadePair(idA, idB) {
+  const a = document.getElementById(idA);
+  const b = document.getElementById(idB);
+  let active = a;
+  let hidden = b;
+  return {
+    setInitial(applyStyle) {
+      applyStyle(a);
+    },
+    swapTo(applyStyle) {
+      applyStyle(hidden);
+      hidden.classList.remove('is-hidden');
+      active.classList.add('is-hidden');
+      const next = active;
+      active = hidden;
+      hidden = next;
+    }
+  };
+}
+
+const mainBg = createCrossfadePair('bgA', 'bgB');
+const downBg = createCrossfadePair('downBgA', 'downBgB');
+const controlsBg = createCrossfadePair('controlsBgA', 'controlsBgB');
+const bodyBg = createCrossfadePair('bodyBgA', 'bodyBgB');
+
+mainBg.setInitial((el) => {
+  el.style.backgroundImage = gradientFor('green');
+  el.style.backgroundColor = THEMES.green.base;
+});
+downBg.setInitial((el) => {
+  el.style.backgroundImage = `url('${ASSET_THEMES.green.down}')`;
+});
+controlsBg.setInitial((el) => {
+  el.style.backgroundImage = `url('${ASSET_THEMES.green.controls}')`;
+});
+bodyBg.setInitial((el) => {
+  el.style.backgroundImage = BODY_GRADIENTS.green.image;
+  el.style.backgroundColor = BODY_GRADIENTS.green.base;
+});
+
+function setTheme(theme) {
+  mainBg.swapTo((el) => {
+    el.style.backgroundImage = gradientFor(theme);
+    el.style.backgroundColor = THEMES[theme].base;
+  });
+  downBg.swapTo((el) => {
+    el.style.backgroundImage = `url('${ASSET_THEMES[theme].down}')`;
+  });
+  controlsBg.swapTo((el) => {
+    el.style.backgroundImage = `url('${ASSET_THEMES[theme].controls}')`;
+  });
+  bodyBg.swapTo((el) => {
+    el.style.backgroundImage = BODY_GRADIENTS[theme].image;
+    el.style.backgroundColor = BODY_GRADIENTS[theme].base;
+  });
+}
+
+document.querySelectorAll('input[name="theme"]').forEach((input) => {
+  input.addEventListener('change', () => {
+    if (input.checked) setTheme(input.value);
+  });
+});
+
+/* ============================================================================
+   НАВИГАЦИЯ МЕЖДУ ЭКРАНАМИ
+   Экран 0 — интро с клубком, экран 1 — первый экран статистики.
+
+   Клубок, нитка и рюкзак — общая жёсткая группа (см. --group-* в :root):
+   едут одним и тем же transform, с одной скоростью, расстояние между ними
+   не меняется. Сами .screen больше не гасятся через opacity — иначе гас бы
+   и клубок внутри неё; у каждого экрана отдельно быстро гаснет («exit-fade»)
+   или проявляется стаггером снизу («reveal-stagger») только его собственный
+   текстовый/декоративный контент.
+   ============================================================================ */
+const GROUP_MS = 900; // держим в синхроне с --group-duration в :root
+const LOCK_MS = 1450; // дольше самого позднего reveal-stagger (1100 + 300)
+
+const stageEl = document.querySelector('.stage');
+
+function updateGroupTravel() {
+  // Клубок прибит к нижнему краю .stage, а Thread_1 стартует ровно от той же
+  // границы — значит «дистанция проезда» группы должна точно равняться
+  // фактической высоте .stage, а не приблизительной константе.
+  document.documentElement.style.setProperty('--group-travel', `${stageEl.offsetHeight}px`);
+}
+updateGroupTravel();
+window.addEventListener('resize', updateGroupTravel);
+
+const screens = [
+  document.getElementById('screen0'),
+  document.getElementById('screen1'),
+  document.getElementById('screen2'),
+  document.getElementById('screen3'),
+  document.getElementById('screen4')
+];
+const yarn = document.querySelector('.yarn');
+const pagination = document.getElementById('pagination');
+const statsFrame = document.querySelector('.stats-image__frame');
+
+// Каждая «бусина на нитке» — пара [нитка, предмет], которая едет как один
+// узел. Индекс в массиве = номер экрана, на котором эта пара стоит на месте.
+const heroGroups = [
+  null, // экран 0 — особый случай, см. .yarn ниже (прибит к нижнему краю)
+  [document.getElementById('thread1Motion'), document.getElementById('statsImageMotion')],
+  [document.getElementById('thread2Motion'), document.getElementById('stats2SceneMotion')],
+  [document.getElementById('thread3Motion'), document.getElementById('stats3SceneMotion')],
+  [document.getElementById('thread4Motion'), document.getElementById('stats4SceneMotion')]
+];
+
+// Контент, который экран показывает сам по себе (гаснет/проявляется).
+// exitFade — быстрый общий fade+drift; staggerRoot — родитель, внутри
+// которого лежат .reveal-stagger с индивидуальными --reveal-delay.
+const screenContent = [
+  { exitFade: [document.getElementById('screen0Content'), document.getElementById('screen0Controls'), document.getElementById('screen0Down')], staggerRoot: null },
+  { exitFade: [document.getElementById('screen1Content')], staggerRoot: document.getElementById('screen1Content') },
+  { exitFade: [document.getElementById('screen2Content')], staggerRoot: document.getElementById('screen2Content') },
+  { exitFade: [document.getElementById('screen3Content')], staggerRoot: document.getElementById('screen3Content') },
+  { exitFade: [document.getElementById('screen4Content')], staggerRoot: document.getElementById('screen4Content') }
+];
+
+const navUpBtn = document.querySelector('.nav-btn[aria-label="Предыдущий экран"]');
+const navUpIcon = document.getElementById('navUpIcon');
+const navDownBtn = document.querySelector('.nav-btn[aria-label="Следующий экран"]');
+const navDownIcon = document.getElementById('navDownIcon');
+const downBlock = document.querySelector('.down');
+const card = document.getElementById('card');
+
+let currentScreen = 0;
+let isTransitioning = false;
+
+function updateNavButtons() {
+  const isUpDisabled = currentScreen === 0;
+  navUpBtn.disabled = isUpDisabled;
+  // Disabled-иконка зашита с fill-opacity 0.5 — на активной кнопке нужна
+  // полностью непрозрачная белая версия того же шеврона.
+  navUpIcon.src = isUpDisabled
+    ? 'demo-assets/itogi26/img/chevron-up.svg'
+    : 'demo-assets/itogi26/img/chevron-up-active.svg';
+
+  // На последнем экране двигаться дальше некуда — «вниз» дизейблится тем же
+  // способом, что и «вверх» на самом первом экране.
+  const isDownDisabled = currentScreen === screens.length - 1;
+  navDownBtn.disabled = isDownDisabled;
+  navDownIcon.src = isDownDisabled
+    ? 'demo-assets/itogi26/img/chevron-down-disabled.svg'
+    : 'demo-assets/itogi26/img/chevron-down.svg';
+}
+
+function updatePagination() {
+  pagination.classList.toggle('is-visible', currentScreen >= 1);
+  pagination.querySelectorAll('.pagination__dot').forEach((dot, i) => {
+    dot.classList.toggle('is-active', i === currentScreen - 1);
+  });
+}
+
+function goToScreen(target) {
+  if (isTransitioning || target === currentScreen || target < 0 || target >= screens.length) return;
+  isTransitioning = true;
+
+  screens.forEach((screen, i) => screen.classList.toggle('is-active', i === target));
+
+  // Клубок — особый случай: прибит к нижнему краю, уезжает только вверх,
+  // назад не возвращается «ниже», поэтому у него всего 2 состояния.
+  yarn.classList.toggle('is-away', target >= 1);
+
+  // Остальные пары «нитка+предмет»: below (по умолчанию) → rest (.is-active,
+  // это их родной экран) → above (.is-above, экран уже проехали).
+  heroGroups.forEach((group, screenIndex) => {
+    if (!group) return;
+    const state = target === screenIndex ? 'rest' : target > screenIndex ? 'above' : 'below';
+    group.forEach((el) => {
+      el.classList.toggle('is-active', state === 'rest');
+      el.classList.toggle('is-above', state === 'above');
+    });
+  });
+
+  // Контент каждого экрана: виден только на своём экране (быстрый fade),
+  // стаггер внутри проигрывается каждый раз заново при входе на экран.
+  screenContent.forEach((content, screenIndex) => {
+    const isTarget = target === screenIndex;
+    content.exitFade.forEach((el) => el.classList.toggle('is-hidden', !isTarget));
+    if (content.staggerRoot) {
+      content.staggerRoot.querySelectorAll('.reveal-stagger').forEach((el) => el.classList.toggle('is-active', isTarget));
+    }
+  });
+
+  currentScreen = target;
+  updateNavButtons();
+  updatePagination();
+
+  if (target === 1) {
+    window.setTimeout(() => {
+      statsFrame.classList.add('is-landing');
+      window.setTimeout(() => statsFrame.classList.remove('is-landing'), 150);
+    }, GROUP_MS);
+  }
+
+  window.setTimeout(() => {
+    isTransitioning = false;
+  }, LOCK_MS);
+}
+
+downBlock.addEventListener('click', () => goToScreen(1));
+navDownBtn.addEventListener('click', () => goToScreen(currentScreen + 1));
+navUpBtn.addEventListener('click', () => goToScreen(currentScreen - 1));
+
+/* Свайп на мобилке: вниз — следующий экран, вверх — предыдущий (единственный
+   способ вернуться назад на мобилке — кнопки «назад» в хедере больше нет). */
+let touchStartY = null;
+card.addEventListener(
+  'touchstart',
+  (event) => {
+    touchStartY = event.touches[0].clientY;
+  },
+  { passive: true }
+);
+card.addEventListener(
+  'touchend',
+  (event) => {
+    if (touchStartY === null) return;
+    const deltaY = event.changedTouches[0].clientY - touchStartY;
+    touchStartY = null;
+    const SWIPE_THRESHOLD = 40;
+    if (deltaY > SWIPE_THRESHOLD) {
+      goToScreen(currentScreen + 1);
+    } else if (deltaY < -SWIPE_THRESHOLD) {
+      goToScreen(currentScreen - 1);
+    }
+  },
+  { passive: true }
+);
+
+updateNavButtons();
+updatePagination();
+
+/* ============================================================================
+   СНЕГ И ЗВЁЗДЫ — без изменений между темами (адаптировано из присланного файла)
+   ============================================================================ */
+const SNOW_CONFIG = {
+  snowflakeCount: 26,
+  starCount: 20,
+  flakeImages: ['flake1', 'flake2', 'flake3'],
+  starImages: ['star', 'starBlur', 'ellipse'],
+  starImageWeights: [0.45, 0.30, 0.25]
+};
+
+const DATA_URIS = {
+  flake1: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZmlsbC1ydWxlPSJldmVub2RkIiBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0xMS45OTk2IDEuMjQ0MTRDMTIuNDEzOCAxLjI0NDE0IDEyLjc0OTYgMS41Nzk5MyAxMi43NDk2IDEuOTk0MTRWNC4xODM0OEwxNC40NjkyIDIuNDYzODFDMTQuNzYyMSAyLjE3MDkyIDE1LjIzNyAyLjE3MDkyIDE1LjUyOTkgMi40NjM4MUMxNS44MjI4IDIuNzU2NyAxNS44MjI4IDMuMjMxNTggMTUuNTI5OSAzLjUyNDQ3TDEyLjc0OTYgNi4zMDQ4VjEwLjY5NTFMMTYuNTUxNiA4LjUwMDAyTDE3LjU2OTMgNC43MDIwMkMxNy42NzY1IDQuMzAxOTIgMTguMDg3NyA0LjA2NDQ4IDE4LjQ4NzggNC4xNzE2OUMxOC44ODc5IDQuMjc4ODkgMTkuMTI1NCA0LjY5MDE1IDE5LjAxODIgNS4wOTAyNUwxOC4zODg3IDcuNDM5MzZMMjAuMjg0NyA2LjM0NDY5QzIwLjY0MzUgNi4xMzc1OCAyMS4xMDIxIDYuMjYwNDkgMjEuMzA5MyA2LjYxOTIxQzIxLjUxNjQgNi45Nzc5MyAyMS4zOTM1IDcuNDM2NjIgMjEuMDM0NyA3LjY0MzczTDE5LjEzODcgOC43Mzg0TDIxLjQ4NzggOS4zNjc4NEMyMS44ODc5IDkuNDc1MDUgMjIuMTI1NCA5Ljg4NjMgMjIuMDE4MiAxMC4yODY0QzIxLjkxMDkgMTAuNjg2NSAyMS40OTk3IDEwLjkyMzkgMjEuMDk5NiAxMC44MTY3TDE3LjMwMTYgOS43OTkwNkwxMy40OTk2IDExLjk5NDFMMTcuMzAxOCAxNC4xODkzTDIxLjA5OTggMTMuMTcxNkMyMS40OTk5IDEzLjA2NDQgMjEuOTExMSAxMy4zMDE5IDIyLjAxODQgMTMuNzAyQzIyLjEyNTYgMTQuMTAyMSAyMS44ODgxIDE0LjUxMzMgMjEuNDg4IDE0LjYyMDVMMTkuMTM4OSAxNS4yNUwyMS4wMzQ5IDE2LjM0NDZDMjEuMzkzNyAxNi41NTE4IDIxLjUxNjYgMTcuMDEwNCAyMS4zMDk1IDE3LjM2OTJDMjEuMTAyMyAxNy43Mjc5IDIwLjY0MzcgMTcuODUwOCAyMC4yODQ5IDE3LjY0MzdMMTguMzg4OSAxNi41NDlMMTkuMDE4NCAxOC44OTgxQzE5LjEyNTYgMTkuMjk4MiAxOC44ODgxIDE5LjcwOTUgMTguNDg4IDE5LjgxNjdDMTguMDg3OSAxOS45MjM5IDE3LjY3NjcgMTkuNjg2NSAxNy41Njk1IDE5LjI4NjRMMTYuNTUxOCAxNS40ODg0TDEyLjc0OTYgMTMuMjkzMVYxNy42ODM0TDE1LjUyOTkgMjAuNDYzOEMxNS44MjI4IDIwLjc1NjcgMTUuODIyOCAyMS4yMzE1IDE1LjUyOTkgMjEuNTI0NEMxNS4yMzcgMjEuODE3MyAxNC43NjIxIDIxLjgxNzMgMTQuNDY5MiAyMS41MjQ0TDEyLjc0OTYgMTkuODA0OFYyMS45OTQxQzEyLjc0OTYgMjIuNDA4MyAxMi40MTM4IDIyLjc0NDEgMTEuOTk5NiAyMi43NDQxQzExLjU4NTQgMjIuNzQ0MSAxMS4yNDk2IDIyLjQwODMgMTEuMjQ5NiAyMS45OTQxVjE5LjgwNDhMOS41Mjk5MiAyMS41MjQ0QzkuMjM3MDMgMjEuODE3MyA4Ljc2MjE1IDIxLjgxNzMgOC40NjkyNiAyMS41MjQ0QzguMTc2MzcgMjEuMjMxNSA4LjE3NjM3IDIwLjc1NjcgOC40NjkyNiAyMC40NjM4TDExLjI0OTYgMTcuNjgzNFYxMy4yOTMxTDcuNDQ3MzggMTUuNDg4NEw2LjQyOTcxIDE5LjI4NjRDNi4zMjI1IDE5LjY4NjUgNS45MTEyNSAxOS45MjM5IDUuNTExMTUgMTkuODE2N0M1LjExMTA1IDE5LjcwOTUgNC44NzM2MSAxOS4yOTgyIDQuOTgwODIgMTguODk4MUw1LjYxMDI2IDE2LjU0OUwzLjcxNDI0IDE3LjY0MzdDMy4zNTU1MiAxNy44NTA4IDIuODk2ODIgMTcuNzI3OSAyLjY4OTcyIDE3LjM2OTJDMi40ODI2MSAxNy4wMTA0IDIuNjA1NTIgMTYuNTUxOCAyLjk2NDI0IDE2LjM0NDZMNC44NjAyNiAxNS4yNUwyLjUxMTE1IDE0LjYyMDVDMi4xMTEwNSAxNC41MTMzIDEuODczNjEgMTQuMTAyMSAxLjk4MDgyIDEzLjcwMkMyLjA4ODAyIDEzLjMwMTkgMi40OTkyOCAxMy4wNjQ0IDIuODk5MzggMTMuMTcxNkw2LjY5NzM4IDE0LjE4OTNMMTAuNDk5NiAxMS45OTQxTDYuNjk3NTcgOS43OTkwNkwyLjg5OTU3IDEwLjgxNjdDMi40OTk0NyAxMC45MjM5IDIuMDg4MjIgMTAuNjg2NSAxLjk4MTAxIDEwLjI4NjRDMS44NzM4MSA5Ljg4NjMgMi4xMTEyNCA5LjQ3NTA1IDIuNTExMzQgOS4zNjc4NEw0Ljg2MDQ2IDguNzM4NEwyLjk2NDQzIDcuNjQzNzNDMi42MDU3MSA3LjQzNjYyIDIuNDgyODEgNi45Nzc5MyAyLjY4OTkxIDYuNjE5MjFDMi44OTcwMiA2LjI2MDQ5IDMuMzU1NzEgNi4xMzc1OCAzLjcxNDQzIDYuMzQ0NjlMNS42MTA0NiA3LjQzOTM2TDQuOTgxMDEgNS4wOTAyNUM0Ljg3MzgxIDQuNjkwMTUgNS4xMTEyNCA0LjI3ODg5IDUuNTExMzQgNC4xNzE2OUM1LjkxMTQ0IDQuMDY0NDggNi4zMjI3IDQuMzAxOTIgNi40Mjk5IDQuNzAyMDJMNy40NDc1NyA4LjUwMDAyTDExLjI0OTYgMTAuNjk1MVY2LjMwNDhMOC40NjkyNiAzLjUyNDQ3QzguMTc2MzcgMy4yMzE1OCA4LjE3NjM3IDIuNzU2NyA4LjQ2OTI2IDIuNDYzODFDOC43NjIxNSAyLjE3MDkyIDkuMjM3MDMgMi4xNzA5MiA5LjUyOTkyIDIuNDYzODFMMTEuMjQ5NiA0LjE4MzQ4VjEuOTk0MTRDMTEuMjQ5NiAxLjU3OTkzIDExLjU4NTQgMS4yNDQxNCAxMS45OTk2IDEuMjQ0MTRaIiBmaWxsPSJ3aGl0ZSIvPgo8L3N2Zz4K",
+  flake2: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEwIDIwTDguNzUgMTcuNUw2IDE4TTEwIDRMOC43NSA2LjVMNiA2TTE0IDIwTDE1LjI1IDE3LjVMMTggMThNMTQgNEwxNS4yNSA2LjVMMTggNiIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIxLjY1NTE3IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPHBhdGggZD0iTTE3IDIxTDE0IDE1SDEwTTE3IDNMMTQgOUwxNS41IDEyTTIgMTJIOC41TDEwIDlNMjAgMTBMMTguNSAxMkwyMCAxNCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIxLjY1NTE3IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPHBhdGggZD0iTTIxLjk5OCAxMkgxNS40OThMMTMuOTk4IDE1TTMuOTk4MDUgMTBMNS40OTgwNSAxMkwzLjk5ODA1IDE0TTYuOTk4MDUgMjFMOS45OTgwNSAxNUw4LjQ5ODA1IDEyTTYuOTk4MDUgM0w5Ljk5ODA1IDlIMTMuOTk4IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjEuNjU1MTciIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4K",
+  flake3: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJDMTIuMjY1MiAyIDEyLjUxOTYgMi4xMDUzNiAxMi43MDcxIDIuMjkyODlDMTIuODk0NiAyLjQ4MDQzIDEzIDIuNzM0NzggMTMgM1Y1LjU1MUwxNC43MDcgMy44NDVDMTQuNzk5MiAzLjc0OTQ5IDE0LjkwOTYgMy42NzMzMSAxNS4wMzE2IDMuNjIwOUMxNS4xNTM2IDMuNTY4NDkgMTUuMjg0OCAzLjU0MDkgMTUuNDE3NiAzLjUzOTc1QzE1LjU1MDQgMy41Mzg2IDE1LjY4MjEgMy41NjM5IDE1LjgwNSAzLjYxNDE4QzE1LjkyNzggMy42NjQ0NiAxNi4wMzk1IDMuNzM4NzEgMTYuMTMzNCAzLjgzMjZDMTYuMjI3MyAzLjkyNjUgMTYuMzAxNSA0LjAzODE1IDE2LjM1MTggNC4xNjEwNUMxNi40MDIxIDQuMjgzOTQgMTYuNDI3NCA0LjQxNTYyIDE2LjQyNjIgNC41NDg0QzE2LjQyNTEgNC42ODExOCAxNi4zOTc1IDQuODEyNCAxNi4zNDUxIDQuOTM0NEMxNi4yOTI3IDUuMDU2NDEgMTYuMjE2NSA1LjE2Njc1IDE2LjEyMSA1LjI1OUwxMyA4LjM3OVYxMUgxNS42MkwxOC43NDEgNy44OEMxOC44MzI3IDcuNzgyMjYgMTguOTQzIDcuNzAzOTMgMTkuMDY1NSA3LjY0OTY3QzE5LjE4ODEgNy41OTU0MiAxOS4zMjAyIDcuNTY2MzQgMTkuNDU0MiA3LjU2NDE2QzE5LjU4ODIgNy41NjE5OSAxOS43MjEyIDcuNTg2NzYgMTkuODQ1NSA3LjYzNzAxQzE5Ljk2OTcgNy42ODcyNiAyMC4wODI1IDcuNzYxOTYgMjAuMTc3MyA3Ljg1NjY4QzIwLjI3MjEgNy45NTEzOSAyMC4zNDY5IDguMDY0MTkgMjAuMzk3MiA4LjE4ODM3QzIwLjQ0NzUgOC4zMTI1NSAyMC40NzI0IDguNDQ1NTggMjAuNDcwMyA4LjU3OTU2QzIwLjQ2ODIgOC43MTM1NCAyMC40MzkzIDguODQ1NzMgMjAuMzg1MSA4Ljk2ODI5QzIwLjMzMDkgOS4wOTA4NSAyMC4yNTI3IDkuMjAxMjcgMjAuMTU1IDkuMjkzTDE4LjQ1IDExSDIxQzIxLjI2NTIgMTEgMjEuNTE5NiAxMS4xMDU0IDIxLjcwNzEgMTEuMjkyOUMyMS44OTQ2IDExLjQ4MDQgMjIgMTEuNzM0OCAyMiAxMkMyMiAxMi4yNjUyIDIxLjg5NDYgMTIuNTE5NiAyMS43MDcxIDEyLjcwNzFDMjEuNTE5NiAxMi44OTQ2IDIxLjI2NTIgMTMgMjEgMTNIMTguNDQ5TDIwLjE1NSAxNC43MDdDMjAuMzM3MiAxNC44OTU2IDIwLjQzNzkgMTUuMTQ4MiAyMC40MzU3IDE1LjQxMDRDMjAuNDMzNCAxNS42NzI2IDIwLjMyODIgMTUuOTIzNCAyMC4xNDI4IDE2LjEwODhDMTkuOTU3NCAxNi4yOTQyIDE5LjcwNjYgMTYuMzk5NCAxOS40NDQ0IDE2LjQwMTdDMTkuMTgyMiAxNi40MDQgMTguOTI5NiAxNi4zMDMyIDE4Ljc0MSAxNi4xMjFMMTUuNjIxIDEzSDEzVjE1LjYyTDE2LjEyIDE4Ljc0MUMxNi4yOTc4IDE4LjkzMDMgMTYuMzk0OSAxOS4xODE0IDE2LjM5MDkgMTkuNDQxMUMxNi4zODY5IDE5LjcwMDggMTYuMjgyIDE5Ljk0ODcgMTYuMDk4NCAyMC4xMzI0QzE1LjkxNDggMjAuMzE2MSAxNS42NjY5IDIwLjQyMTIgMTUuNDA3MyAyMC40MjU0QzE1LjE0NzYgMjAuNDI5NiAxNC44OTY0IDIwLjMzMjcgMTQuNzA3IDIwLjE1NUwxMyAxOC40NVYyMUMxMyAyMS4yNjUyIDEyLjg5NDYgMjEuNTE5NiAxMi43MDcxIDIxLjcwNzFDMTIuNTE5NiAyMS44OTQ2IDEyLjI2NTIgMjIgMTIgMjJDMTEuNzM0OCAyMiAxMS40ODA0IDIxLjg5NDYgMTEuMjkyOSAyMS43MDcxQzExLjEwNTQgMjEuNTE5NiAxMSAyMS4yNjUyIDExIDIxVjE4LjQ0OUw5LjI5MyAyMC4xNTVDOS4xMDQ0IDIwLjMzNzIgOC44NTE3OSAyMC40Mzc5IDguNTg5NiAyMC40MzU3QzguMzI3NCAyMC40MzM0IDguMDc2NTkgMjAuMzI4MiA3Ljg5MTE4IDIwLjE0MjhDNy43MDU3NyAxOS45NTc0IDcuNjAwNiAxOS43MDY2IDcuNTk4MzIgMTkuNDQ0NEM3LjU5NjA1IDE5LjE4MjIgNy42OTY4NCAxOC45Mjk2IDcuODc5IDE4Ljc0MUwxMSAxNS42MjFWMTNIOC4zOEw1LjI1OSAxNi4xMkM1LjA2OTY3IDE2LjI5NzggNC44MTg2MSAxNi4zOTQ5IDQuNTU4OTIgMTYuMzkwOUM0LjI5OTI0IDE2LjM4NjkgNC4wNTEzMSAxNi4yODIgMy44Njc1OSAxNi4wOTg0QzMuNjgzODggMTUuOTE0OCAzLjU3ODggMTUuNjY2OSAzLjU3NDU4IDE1LjQwNzNDMy41NzAzNyAxNS4xNDc2IDMuNjY3MzQgMTQuODk2NCAzLjg0NSAxNC43MDdMNS41NSAxM0gzQzIuNzM0NzggMTMgMi40ODA0MyAxMi44OTQ2IDIuMjkyODkgMTIuNzA3MUMyLjEwNTM2IDEyLjUxOTYgMiAxMi4yNjUyIDIgMTJDMiAxMS43MzQ4IDIuMTA1MzYgMTEuNDgwNCAyLjI5Mjg5IDExLjI5MjlDMi40ODA0MyAxMS4xMDU0IDIuNzM0NzggMTEgMyAxMUg1LjU1MUwzLjg0NSA5LjI5M0MzLjc0NzMyIDkuMjAxMjcgMy42NjkwNyA5LjA5MDg1IDMuNjE0OTEgOC45NjgyOUMzLjU2MDc0IDguODQ1NzMgMy41MzE3NSA4LjcxMzU0IDMuNTI5NjcgOC41Nzk1NkMzLjUyNzU5IDguNDQ1NTggMy41NTI0NiA4LjMxMjU1IDMuNjAyNzkgOC4xODgzN0MzLjY1MzEzIDguMDY0MTkgMy43Mjc5MSA3Ljk1MTM5IDMuODIyNjkgNy44NTY2OEMzLjkxNzQ4IDcuNzYxOTYgNC4wMzAzMyA3LjY4NzI2IDQuMTU0NTQgNy42MzcwMUM0LjI3ODc2IDcuNTg2NzYgNC40MTE4MSA3LjU2MTk5IDQuNTQ1NzkgNy41NjQxNkM0LjY3OTc2IDcuNTY2MzQgNC44MTE5NCA3LjU5NTQyIDQuOTM0NDYgNy42NDk2N0M1LjA1Njk4IDcuNzAzOTMgNS4xNjczNCA3Ljc4MjI2IDUuMjU5IDcuODhMOC4zNzkgMTFIMTFWOC4zOEw3Ljg4IDUuMjU5QzcuNzAyMjEgNS4wNjk2NyA3LjYwNTA1IDQuODE4NjEgNy42MDkwOSA0LjU1ODkyQzcuNjEzMTIgNC4yOTkyNCA3LjcxODAzIDQuMDUxMzEgNy45MDE2MSAzLjg2NzU5QzguMDg1MTkgMy42ODM4OCA4LjMzMzA1IDMuNTc4OCA4LjU5MjczIDMuNTc0NThDOC44NTI0MSAzLjU3MDM3IDkuMTAzNTUgMy42NjczNCA5LjI5MyAzLjg0NUwxMSA1LjU1VjNDMTEgMi43MzQ3OCAxMS4xMDU0IDIuNDgwNDMgMTEuMjkyOSAyLjI5Mjg5QzExLjQ4MDQgMi4xMDUzNiAxMS43MzQ4IDIgMTIgMloiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPgo=",
+  star: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOSIgaGVpZ2h0PSI5IiB2aWV3Qm94PSIwIDAgOSA5IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cGF0aCBkPSJNNC41IDBDNC42NzkwMyAwIDQuODI4NDggMC4xMzY1MzIgNC44NDQ2OSAwLjMxNDgyOUw1LjAzNDIyIDIuMzk4ODVDNS4wNzI0OCAyLjgxOTY5IDUuMDk4ODQgMy4xMDM3IDUuMTQ1MjEgMy4zMTcyQzUuMTg5NTMgMy41MjEyOSA1LjI0NDEyIDMuNjE5MjcgNS4zMTI0MiAzLjY4NzU4QzUuMzgwNzMgMy43NTU4OCA1LjQ3ODcxIDMuODEwNDcgNS42ODI4MSAzLjg1NDc5QzUuODk2MyAzLjkwMTE2IDYuMTgwMzEgMy45Mjc1MiA2LjYwMTE1IDMuOTY1NzhMOC42ODUxNyA0LjE1NTMxQzguODYzNDcgNC4xNzE1MiA5IDQuMzIwOTcgOSA0LjVDOSA0LjY3OTAzIDguODYzNDcgNC44Mjg0OCA4LjY4NTE3IDQuODQ0NjlMNi42MDExNSA1LjAzNDIyQzYuMTgwMzEgNS4wNzI0OCA1Ljg5NjMgNS4wOTg4NCA1LjY4MjgxIDUuMTQ1MjFDNS40Nzg3MSA1LjE4OTUzIDUuMzgwNzMgNS4yNDQxMiA1LjMxMjQyIDUuMzEyNDJDNS4yNDQxMiA1LjM4MDczIDUuMTg5NTMgNS40Nzg3MSA1LjE0NTIxIDUuNjgyODFDNS4wOTg4NCA1Ljg5NjMgNS4wNzI0OCA2LjE4MDMxIDUuMDM0MjIgNi42MDExNUw0Ljg0NDY5IDguNjg1MTdDNC44Mjg0OCA4Ljg2MzQ3IDQuNjc5MDMgOSA0LjUgOUM0LjMyMDk3IDkgNC4xNzE1MiA4Ljg2MzQ3IDQuMTU1MzEgOC42ODUxN0wzLjk2NTc4IDYuNjAxMTVDMy45Mjc1MiA2LjE4MDMxIDMuOTAxMTYgNS44OTYzIDMuODU0NzkgNS42ODI4MUMzLjgxMDQ3IDUuNDc4NzEgMy43NTU4OCA1LjM4MDczIDMuNjg3NTggNS4zMTI0MkMzLjYxOTI3IDUuMjQ0MTIgMy41MjEyOSA1LjE4OTUzIDMuMzE3MiA1LjE0NTIxQzMuMTAzNyA1LjA5ODg0IDIuODE5NjkgNS4wNzI0OCAyLjM5ODg1IDUuMDM0MjJMMC4zMTQ4MjkgNC44NDQ2OUMwLjEzNjUzMiA0LjgyODQ4IDAgNC42NzkwMyAwIDQuNUMwIDQuMzIwOTcgMC4xMzY1MzIgNC4xNzE1MiAwLjMxNDgyOSA0LjE1NTMxTDIuMzk4ODUgMy45NjU3OEMyLjgxOTY5IDMuOTI3NTIgMy4xMDM3IDMuOTAxMTYgMy4zMTcyIDMuODU0NzlDMy41MjEyOSAzLjgxMDQ3IDMuNjE5MjcgMy43NTU4OCAzLjY4NzU4IDMuNjg3NThDMy43NTU4OCAzLjYxOTI3IDMuODEwNDcgMy41MjEyOSAzLjg1NDc5IDMuMzE3MkMzLjkwMTE2IDMuMTAzNyAzLjkyNzUyIDIuODE5NjkgMy45NjU3OCAyLjM5ODg1TDQuMTU1MzEgMC4zMTQ4MjlMNC4xNTk4MiAwLjI4MTkyNkM0LjE5MDI0IDAuMTE5OTk5IDQuMzMyMTUgMCA0LjUgMFoiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPgo=",
+  starBlur: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGcgZmlsdGVyPSJ1cmwoI2ZpbHRlcjBfZl81MTZfMTEwMDc0KSI+CjxwYXRoIGQ9Ik03LjUxMDExIDMuMTM4NjdDNy42ODQwMyAzLjEzODY3IDcuODI5MjEgMy4yNzEzIDcuODQ0OTUgMy40NDQ1MUw4LjAyOTA2IDUuNDY4OTlDOC4wNjYyMyA1Ljg3NzgxIDguMDkxODQgNi4xNTM3IDguMTM2ODggNi4zNjExQzguMTc5OTQgNi41NTkzNiA4LjIzMjk3IDYuNjU0NTQgOC4yOTkzMiA2LjcyMDlDOC4zNjU2OCA2Ljc4NzI1IDguNDYwODYgNi44NDAyOCA4LjY1OTEyIDYuODgzMzRDOC44NjY1MiA2LjkyODM3IDkuMTQyNDEgNi45NTM5OSA5LjU1MTIzIDYuOTkxMTVMMTEuNTc1NyA3LjE3NTI3QzExLjc0ODkgNy4xOTEwMSAxMS44ODE1IDcuMzM2MTkgMTEuODgxNSA3LjUxMDExQzExLjg4MTUgNy42ODQwMyAxMS43NDg5IDcuODI5MjEgMTEuNTc1NyA3Ljg0NDk1TDkuNTUxMjMgOC4wMjkwNkM5LjE0MjQxIDguMDY2MjMgOC44NjY1MiA4LjA5MTg0IDguNjU5MTIgOC4xMzY4OEM4LjQ2MDg2IDguMTc5OTQgOC4zNjU2OCA4LjIzMjk3IDguMjk5MzIgOC4yOTkzMkM4LjIzMjk3IDguMzY1NjggOC4xNzk5NCA4LjQ2MDg2IDguMTM2ODggOC42NTkxMkM4LjA5MTg0IDguODY2NTIgOC4wNjYyMyA5LjE0MjQxIDguMDI5MDYgOS41NTEyM0w3Ljg0NDk1IDExLjU3NTdDNy44MjkyMSAxMS43NDg5IDcuNjg0MDMgMTEuODgxNSA3LjUxMDExIDExLjg4MTVDNy4zMzYxOSAxMS44ODE1IDcuMTkxMDEgMTEuNzQ4OSA3LjE3NTI3IDExLjU3NTdMNi45OTExNSA5LjU1MTIzQzYuOTUzOTkgOS4xNDI0MSA2LjkyODM4IDguODY2NTIgNi44ODMzNCA4LjY1OTEyQzYuODQwMjggOC40NjA4NiA2Ljc4NzI1IDguMzY1NjggNi43MjA5IDguMjk5MzJDNi42NTQ1NCA4LjIzMjk3IDYuNTU5MzYgOC4xNzk5NCA2LjM2MTEgOC4xMzY4OEM2LjE1MzcgOC4wOTE4NCA1Ljg3NzgxIDguMDY2MjMgNS40Njg5OSA4LjAyOTA2TDMuNDQ0NTEgNy44NDQ5NUMzLjI3MTMgNy44MjkyMSAzLjEzODY3IDcuNjg0MDMgMy4xMzg2NyA3LjUxMDExQzMuMTM4NjcgNy4zMzYxOSAzLjI3MTMgNy4xOTEwMSAzLjQ0NDUxIDcuMTc1MjdMNS40Njg5OSA2Ljk5MTE1QzUuODc3ODEgNi45NTM5OSA2LjE1MzcgNi45MjgzOCA2LjM2MTEgNi44ODMzNEM2LjU1OTM2IDYuODQwMjggNi42NTQ1NCA2Ljc4NzI1IDYuNzIwOSA2LjcyMDlDNi43ODcyNSA2LjY1NDU0IDYuODQwMjggNi41NTkzNiA2Ljg4MzM0IDYuMzYxMUM2LjkyODM3IDYuMTUzNyA2Ljk1Mzk5IDUuODc3ODEgNi45OTExNSA1LjQ2ODk5TDcuMTc1MjcgMy40NDQ1MUw3LjE3OTY1IDMuNDEyNTRDNy4yMDkyIDMuMjU1MjQgNy4zNDcwNSAzLjEzODY3IDcuNTEwMTEgMy4xMzg2N1oiIGZpbGw9IndoaXRlIi8+CjwvZz4KPGRlZnM+CjxmaWx0ZXIgaWQ9ImZpbHRlcjBfZl81MTZfMTEwMDc0IiB4PSIwLjAwMDIwMzg0OCIgeT0iMC4wMDAyMDM4NDgiIHdpZHRoPSIxNS4wMTkxIiBoZWlnaHQ9IjE1LjAxOTEiIGZpbHRlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIj4KPGZlRmxvb2QgZmxvb2Qtb3BhY2l0eT0iMCIgcmVzdWx0PSJCYWNrZ3JvdW5kSW1hZ2VGaXgiLz4KPGZlQmxlbmQgbW9kZT0ibm9ybWFsIiBpbj0iU291cmNlR3JhcGhpYyIgaW4yPSJCYWNrZ3JvdW5kSW1hZ2VGaXgiIHJlc3VsdD0ic2hhcGUiLz4KPGZlR2F1c3NpYW5CbHVyIHN0ZERldmlhdGlvbj0iMS41NjkyMyIgcmVzdWx0PSJlZmZlY3QxX2ZvcmVncm91bmRCbHVyXzUxNl8xMTAwNzQiLz4KPC9maWx0ZXI+CjwvZGVmcz4KPC9zdmc+Cg==",
+  ellipse: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOCIgaGVpZ2h0PSI4IiB2aWV3Qm94PSIwIDAgOCA4IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8ZyBmaWx0ZXI9InVybCgjZmlsdGVyMF9mXzUxNl8xMDg1NTUpIj4KPGNpcmNsZSBjeD0iMy45NzEyOCIgY3k9IjMuOTcxOSIgcj0iMi4xODU3MiIgdHJhbnNmb3JtPSJyb3RhdGUoMTIwIDMuOTcxMjggMy45NzE5KSIgZmlsbD0id2hpdGUiLz4KPC9nPgo8ZGVmcz4KPGZpbHRlciBpZD0iZmlsdGVyMF9mXzUxNl8xMDg1NTUiIHg9IjAuMDAwODk1OTc3IiB5PSIwLjAwMDg5NTk3NyIgd2lkdGg9IjcuOTQxNTciIGhlaWdodD0iNy45NDE1NyIgZmlsdGVyVW5pdHM9InVzZXJTcGFjZU9uVXNlIiBjb2xvci1pbnRlcnBvbGF0aW9uLWZpbHRlcnM9InNSR0IiPgo8ZmVGbG9vZCBmbG9vZC1vcGFjaXR5PSIwIiByZXN1bHQ9IkJhY2tncm91bmRJbWFnZUZpeCIvPgo8ZmVCbGVuZCBtb2RlPSJub3JtYWwiIGluPSJTb3VyY2VHcmFwaGljIiBpbjI9IkJhY2tncm91bmRJbWFnZUZpeCIgcmVzdWx0PSJzaGFwZSIvPgo8ZmVHYXVzc2lhbkJsdXIgc3RkRGV2aWF0aW9uPSIwLjg5MjEzIiByZXN1bHQ9ImVmZmVjdDFfZm9yZWdyb3VuZEJsdXJfNTE2XzEwODU1NSIvPgo8L2ZpbHRlcj4KPC9kZWZzPgo8L3N2Zz4K"
+};
+
+function rand(min, max) { return Math.random() * (max - min) + min; }
+
+function pickWeighted(items, weights) {
+  const r = Math.random();
+  let acc = 0;
+  for (let i = 0; i < items.length; i++) {
+    acc += weights[i];
+    if (r <= acc) return items[i];
+  }
+  return items[items.length - 1];
+}
+
+function createSnowflakes() {
+  const layer = document.getElementById('snowLayer');
+  for (let i = 0; i < SNOW_CONFIG.snowflakeCount; i++) {
+    const outer = document.createElement('div');
+    outer.className = 'snowflake';
+
+    const size = rand(7, 20);
+    const left = rand(0, 100);
+    const fallDuration = rand(20, 30);
+    const fallDelay = rand(-fallDuration, 0);
+    const opacity = rand(0.2, 0.7);
+    const sway = rand(19, 42);
+    const spinDuration = rand(6, 16);
+    const swayDuration = rand(3, 7);
+
+    outer.style.left = left + '%';
+    outer.style.width = size + 'px';
+    outer.style.height = size + 'px';
+    outer.style.opacity = opacity;
+    outer.style.animationDuration = fallDuration + 's';
+    outer.style.animationDelay = fallDelay + 's';
+
+    const inner = document.createElement('div');
+    inner.className = 'snowflake-inner';
+    const img = pickWeighted(SNOW_CONFIG.flakeImages, [0.4, 0.3, 0.3]);
+    inner.style.backgroundImage = `url("${DATA_URIS[img]}")`;
+    inner.style.setProperty('--sway', sway + 'px');
+    inner.style.animationDuration = `${swayDuration}s, ${spinDuration}s`;
+    inner.style.animationDelay = `${rand(0, swayDuration)}s, ${rand(0, spinDuration)}s`;
+
+    outer.appendChild(inner);
+    layer.appendChild(outer);
+  }
+}
+
+function createStars() {
+  const layer = document.getElementById('starsLayer');
+  for (let i = 0; i < SNOW_CONFIG.starCount; i++) {
+    const star = document.createElement('div');
+    star.className = 'star';
+
+    const size = rand(6, 10);
+    const top = rand(0, 100);
+    const left = rand(0, 100);
+    const duration = rand(4, 6);
+    const delay = rand(0, 6);
+    const minOp = rand(0.2, 0.2 + (0.4 - 0.2) * 0.3);
+    const maxOp = rand(0.4 - (0.4 - 0.2) * 0.3, 0.4);
+
+    const img = pickWeighted(SNOW_CONFIG.starImages, SNOW_CONFIG.starImageWeights);
+    star.style.backgroundImage = `url("${DATA_URIS[img]}")`;
+    star.style.width = size + 'px';
+    star.style.height = size + 'px';
+    star.style.top = top + '%';
+    star.style.left = left + '%';
+    star.style.setProperty('--min-op', minOp);
+    star.style.setProperty('--max-op', maxOp);
+    star.style.animationDuration = duration + 's';
+    star.style.animationDelay = delay + 's';
+
+    layer.appendChild(star);
+  }
+}
+
+createStars();
+createSnowflakes();
+</script>
+</body>
+</html>
