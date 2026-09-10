@@ -184,6 +184,7 @@
     position: relative;
     z-index: 2;
     width: 100%;
+    height: 80px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -201,7 +202,7 @@
     backdrop-filter: blur(24px);
     -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
     mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
-    background-image: linear-gradient(to bottom, rgba(22, 61, 38, 0.25), rgba(22, 61, 38, 0));
+    background-image: linear-gradient(180deg, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0) 100%);
   }
   /* Экран 0: блюр в шапке ложится поверх верхней части клубка/нитки во время
      анимации — на этом экране эффект не нужен. */
@@ -266,6 +267,7 @@
     flex-direction: column;
     align-items: center;
     width: 100%;
+    gap: 1px;
     margin-bottom: -8px;
   }
 
@@ -284,12 +286,12 @@
   .headline__sign-box {
     position: relative;
     width: 100%;
-    height: 98px;
+    height: 94px;
   }
   .headline__sign {
     position: absolute;
     left: 50%;
-    top: -3px;
+    top: -5px;
     width: 304.102px;
     height: 102.777px;
     display: flex;
@@ -541,11 +543,18 @@
   /* ==========================================================================
      THEME CONTROLS — переключатель фона
      ========================================================================== */
-  .theme-controls {
+  /* Обёртка вынесена отдельно от .theme-controls, у которой overflow:hidden
+     (нужен, чтобы обрезать фон темы по форме пилюли) — тултип позиционирован
+     ЗА пределами бокса .theme-controls (bottom:100%), и тем же overflow его
+     бы обрезало, поэтому это два разных элемента. */
+  .theme-controls-wrap {
     position: relative;
     z-index: 3;
     flex: 0 0 auto;
     margin-bottom: 16px;
+  }
+  .theme-controls {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 16px;
@@ -593,6 +602,51 @@
     box-shadow: 0 0 0 2px #fff;
   }
 
+  /* Тултип-подсказка над переключателем тем: появляется сама через 500ms
+     после старта и закрывается по любому клику (по себе или мимо — см. JS). */
+  .intro-tooltip {
+    position: absolute;
+    z-index: 4;
+    left: 50%;
+    bottom: 100%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 250ms ease;
+  }
+  .intro-tooltip.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .intro-tooltip__bubble {
+    -webkit-backdrop-filter: blur(62px);
+    backdrop-filter: blur(62px);
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 20px 20px rgba(0, 0, 0, 0.2);
+    font-family: 'X5 Sans', sans-serif;
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 18px;
+    letter-spacing: -0.32px;
+    color: #fff;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .intro-tooltip__arrow {
+    width: 0;
+    height: 0;
+    margin-top: -1px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 5px solid rgba(0, 0, 0, 0.5);
+  }
+
   /* ==========================================================================
      ЭКРАН 1 — первый экран статистики (Thread_1 + Backpack + Content + Pagination)
      ========================================================================== */
@@ -627,9 +681,19 @@
     transform: translateY(calc(-1 * var(--group-travel)));
   }
   .thread-bg img { width: 100%; height: 100%; object-fit: cover; }
-  /* Thread_4 в макете — короткая нитка с фиксированной высотой 208px
-     (не растянута на всю высоту .stage, как нитки 1–3). */
-  .thread-bg--short { height: 208px; }
+  /* Thread_4 в макете — короткая нитка (208px), а не на всю высоту .stage,
+     как нитки 1–3. ВАЖНО: коротким делаем только само изображение — обёртка
+     .thread-bg обязана остаться на полную высоту стейджа (как у остальных
+     ниток), иначе во время переезда (translateY) картинка выходит за
+     пределы своего overflow:hidden-контейнера и пропадает, появляясь только
+     в самом конце, когда доехала до translateY(0). */
+  .thread-bg--short img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 208px;
+  }
 
   .stats-image-item {
     position: relative;
@@ -687,33 +751,12 @@
   }
   .stats-image__frame img {
     position: absolute;
-    left: 0;
-    top: -2.15%;
+    inset: 0;
     width: 100%;
-    height: 102.15%;
+    height: 100%;
     object-fit: cover;
   }
 
-  .stats-blur {
-    position: absolute;
-    z-index: 1;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 380px;
-    -webkit-backdrop-filter: blur(34px);
-    backdrop-filter: blur(34px);
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
-    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
-    background-image: linear-gradient(
-      180deg,
-      rgba(19, 67, 39, 0) 0%,
-      rgba(19, 67, 39, 0.038) 25%,
-      rgba(19, 67, 39, 0.192) 40%,
-      rgba(19, 67, 39, 0.32) 100%
-    );
-    pointer-events: none;
-  }
 
   .stats-content {
     position: relative;
@@ -725,7 +768,7 @@
     gap: 32px;
     width: 100%;
     max-width: 767px;
-    padding: 24px;
+    padding: 32px 24px;
   }
   .stats-content__group {
     display: flex;
@@ -740,6 +783,15 @@
     flex-direction: column;
     align-items: center;
     gap: 16px;
+    width: 100%;
+  }
+  /* Число + заголовок, стоящие впритык (gap 0 по макету) — отдельная группа
+     внутри .stats-text-container, чтобы её сосед (подзаголовок) сохранял
+     обычный gap 16px. */
+  .stats-number-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     width: 100%;
   }
   .stats-number {
@@ -931,12 +983,27 @@
     height: 40px;
     transform: rotate(-16.27deg);
   }
-  .stats2-bean--4 { left: 221.53px; top: 303px; width: 114.149px; height: 99px; }
+  .stats2-bean--4 { left: 245.53px; top: 203px; width: 114.149px; height: 99px; }
+
+  /* Разлёт зёрен из-за кружки: каждое зерно стоит на своём финальном месте
+     (left/top выше), а --bean-dx/--bean-dy — вектор от центра кружки ДО
+     этого места. По умолчанию зерно сдвинуто обратно к центру кружки и
+     уменьшено — а при .is-scattered на общем контейнере все 4 одновременно
+     (одна transition, без покадрового сдвига) разлетаются на свои места. */
+  .stats2-bean--burst {
+    transform: translate(calc(var(--bean-dx) * -1), calc(var(--bean-dy) * -1)) scale(0.15);
+    opacity: 0;
+    transition: transform 550ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 350ms ease;
+  }
+  .stats2-beans.is-scattered .stats2-bean--burst {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
 
   .stats2-cup {
     position: absolute;
     left: calc(50% - 0.96px);
-    top: calc(50% + 16.72px);
+    top: calc(50% + 32.72px);
     width: 380.018px;
     height: 375.448px;
     display: flex;
@@ -952,27 +1019,6 @@
     transform: rotate(5.64deg);
   }
   .stats2-cup__frame img { width: 100%; height: 100%; object-fit: cover; }
-
-  .stats2-blur {
-    position: absolute;
-    z-index: 1;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 380px;
-    -webkit-backdrop-filter: blur(34px);
-    backdrop-filter: blur(34px);
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
-    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
-    background-image: linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0) 0%,
-      rgba(0, 0, 0, 0.038) 25%,
-      rgba(0, 0, 0, 0.192) 40%,
-      rgba(0, 0, 0, 0.32) 100%
-    );
-    pointer-events: none;
-  }
 
   .stats2-heading {
     margin: 0;
@@ -1061,27 +1107,6 @@
   }
   .stats3-paket__frame img { width: 100%; height: 100%; object-fit: cover; }
 
-  .stats3-blur {
-    position: absolute;
-    z-index: 1;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 380px;
-    -webkit-backdrop-filter: blur(34px);
-    backdrop-filter: blur(34px);
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
-    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 100%);
-    background-image: linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0) 0%,
-      rgba(0, 0, 0, 0.038) 25%,
-      rgba(0, 0, 0, 0.192) 40%,
-      rgba(0, 0, 0, 0.32) 100%
-    );
-    pointer-events: none;
-  }
-
   .stats3-points {
     display: flex;
     align-items: flex-start;
@@ -1138,14 +1163,20 @@
   }
   .stats4-sweater img {
     position: absolute;
-    left: 0;
-    top: -4.74%;
+    inset: 0;
     width: 100%;
-    height: 107.46%;
-    max-width: none;
+    height: 100%;
+    object-fit: cover;
   }
 
-  .stats4-blur {
+  /* Единый слой блюра для всех экранов статистики. Раньше это был отдельный
+     div внутри каждого .screen — но .screen не создаёт свой stacking context,
+     поэтому все 4 копии рендерились и блюрили одновременно, наслаиваясь друг
+     на друга. Теперь это один элемент на уровне .stage (как .thread-bg и
+     .pagination): просто гасится/проявляется через opacity в зависимости от
+     currentScreen, а блюрит он всегда ровно то, что физически видно в кадре
+     (только текущий активный герой-элемент, т.к. чужие уехали по transform). */
+  .content-blur {
     position: absolute;
     z-index: 1;
     left: 0;
@@ -1164,6 +1195,11 @@
       rgba(0, 0, 0, 0.32) 100%
     );
     pointer-events: none;
+    opacity: 0;
+    transition: opacity 300ms ease;
+  }
+  .content-blur.is-visible {
+    opacity: 1;
   }
 
   /* Общий для всех экранов статистики элемент (не привязан к конкретному
@@ -1328,12 +1364,9 @@
 
     .down { display: none; }
 
-    .theme-controls {
-      margin-bottom: 40px;
-      padding: 16px;
-      gap: 16px;
+    .theme-controls-wrap {
+      margin-bottom: 32px;
     }
-    .theme-dot { width: 40px; height: 40px; }
   }
 </style>
 </head>
@@ -1438,21 +1471,27 @@
           </div>
         </div>
 
-        <div class="theme-controls exit-fade" id="screen0Controls" role="radiogroup" aria-label="Тема оформления">
-          <div class="theme-controls__bg" id="controlsBgA"></div>
-          <div class="theme-controls__bg is-hidden" id="controlsBgB"></div>
-          <label class="theme-dot theme-dot--green">
-            <input type="radio" name="theme" value="green" checked />
-            <span class="theme-dot__swatch"></span>
-          </label>
-          <label class="theme-dot theme-dot--blue">
-            <input type="radio" name="theme" value="blue" />
-            <span class="theme-dot__swatch"></span>
-          </label>
-          <label class="theme-dot theme-dot--red">
-            <input type="radio" name="theme" value="red" />
-            <span class="theme-dot__swatch"></span>
-          </label>
+        <div class="theme-controls-wrap exit-fade" id="screen0Controls">
+          <div class="theme-controls" role="radiogroup" aria-label="Тема оформления">
+            <div class="theme-controls__bg" id="controlsBgA"></div>
+            <div class="theme-controls__bg is-hidden" id="controlsBgB"></div>
+            <label class="theme-dot theme-dot--green">
+              <input type="radio" name="theme" value="green" checked />
+              <span class="theme-dot__swatch"></span>
+            </label>
+            <label class="theme-dot theme-dot--blue">
+              <input type="radio" name="theme" value="blue" />
+              <span class="theme-dot__swatch"></span>
+            </label>
+            <label class="theme-dot theme-dot--red">
+              <input type="radio" name="theme" value="red" />
+              <span class="theme-dot__swatch"></span>
+            </label>
+          </div>
+          <div class="intro-tooltip" id="introTooltip">
+            <div class="intro-tooltip__bubble">Можно выбрать тему итогов года ✨</div>
+            <div class="intro-tooltip__arrow"></div>
+          </div>
         </div>
 
         <button class="down exit-fade" id="screen0Down" type="button">
@@ -1493,8 +1532,6 @@
               </div>
             </div>
           </div>
-
-          <div class="stats-blur"></div>
 
           <div class="stats-content exit-fade" id="screen1Content">
             <div class="stats-content__group">
@@ -1545,19 +1582,19 @@
           <div class="stats2-image-item">
             <div class="stats2-placeholder">
               <div class="stats2-scene__motion" id="stats2SceneMotion">
-                <div class="stats2-beans">
-                  <div class="stats2-bean stats2-bean--1">
+                <div class="stats2-beans" id="stats2Beans">
+                  <div class="stats2-bean stats2-bean--1 stats2-bean--burst" style="--bean-dx: -160.9px; --bean-dy: -111.5px">
                     <img src="demo-assets/itogi26/img/coffee-4.png" alt="" />
                   </div>
-                  <div class="stats2-bean stats2-bean--2">
+                  <div class="stats2-bean stats2-bean--2 stats2-bean--burst" style="--bean-dx: -143.23px; --bean-dy: 51px">
                     <img src="demo-assets/itogi26/img/coffee-2.png" alt="" />
                   </div>
-                  <div class="stats2-bean--3-wrap">
+                  <div class="stats2-bean--3-wrap stats2-bean--burst" style="--bean-dx: 126.77px; --bean-dy: -33.2px">
                     <div class="stats2-bean stats2-bean--3">
                       <img src="demo-assets/itogi26/img/coffee-3.png" alt="" />
                     </div>
                   </div>
-                  <div class="stats2-bean stats2-bean--4">
+                  <div class="stats2-bean stats2-bean--4 stats2-bean--burst" style="--bean-dx: 116.1px; --bean-dy: 86.5px">
                     <img src="demo-assets/itogi26/img/coffee-4.png" alt="" />
                   </div>
                 </div>
@@ -1569,8 +1606,6 @@
               </div>
             </div>
           </div>
-
-          <div class="stats2-blur"></div>
 
           <div class="stats-content exit-fade" id="screen2Content">
             <div class="stats-content__group">
@@ -1652,18 +1687,18 @@
             </div>
           </div>
 
-          <div class="stats3-blur"></div>
-
           <div class="stats-content exit-fade" id="screen3Content">
             <div class="stats-content__group">
               <div class="stats-text-container">
-                <div class="stats3-points reveal-stagger" style="--reveal-delay: 800ms">
-                  <p class="stats-number__value" style="margin: 0">5 000</p>
-                  <div class="stats3-points__icon">
-                    <img src="demo-assets/itogi26/img/points-icon.svg" alt="" />
+                <div class="stats-number-group">
+                  <div class="stats3-points reveal-stagger" style="--reveal-delay: 800ms">
+                    <p class="stats-number__value" style="margin: 0">5 000</p>
+                    <div class="stats3-points__icon">
+                      <img src="demo-assets/itogi26/img/points-icon.svg" alt="" />
+                    </div>
                   </div>
+                  <p class="stats2-heading reveal-stagger" style="--reveal-delay: 860ms">Накопили с сервисом «Пакет» за год</p>
                 </div>
-                <p class="stats2-heading reveal-stagger" style="--reveal-delay: 860ms">Накопили с сервисом «Пакет» за год</p>
                 <p class="stats2-subheading reveal-stagger" style="--reveal-delay: 920ms">
                   А ещё у вас было по 3 бесплатных доставки в «Пятёрочке» и «Перекрёстке» каждый месяц
                 </p>
@@ -1692,8 +1727,6 @@
             </div>
           </div>
 
-          <div class="stats4-blur"></div>
-
           <div class="stats-content exit-fade" id="screen4Content">
             <div class="stats-content__group">
               <div class="stats-text-container">
@@ -1705,6 +1738,8 @@
             </div>
           </div>
         </section>
+
+        <div class="content-blur" id="contentBlur"></div>
       </div>
     </div>
 
@@ -1874,7 +1909,9 @@ const screens = [
 ];
 const yarn = document.querySelector('.yarn');
 const pagination = document.getElementById('pagination');
+const contentBlur = document.getElementById('contentBlur');
 const statsFrame = document.querySelector('.stats-image__frame');
+const stats2Beans = document.getElementById('stats2Beans');
 
 // Каждая «бусина на нитке» — пара [нитка, предмет], которая едет как один
 // узел. Индекс в массиве = номер экрана, на котором эта пара стоит на месте.
@@ -1908,7 +1945,10 @@ let currentScreen = 0;
 let isTransitioning = false;
 
 function updateNavButtons() {
-  const isUpDisabled = currentScreen === 0;
+  // Стартовый экран (0) — билет в один конец: с экрана 1 назад к нему уже
+  // не вернуться ни кнопкой, ни свайпом (см. guard в goToScreen), поэтому
+  // «вверх» дизейблится и на самом экране 1 тоже, а не только на экране 0.
+  const isUpDisabled = currentScreen <= 1;
   navUpBtn.disabled = isUpDisabled;
   // Disabled-иконка зашита с fill-opacity 0.5 — на активной кнопке нужна
   // полностью непрозрачная белая версия того же шеврона.
@@ -1930,10 +1970,16 @@ function updatePagination() {
   pagination.querySelectorAll('.pagination__dot').forEach((dot, i) => {
     dot.classList.toggle('is-active', i === currentScreen - 1);
   });
+  // Единый слой блюра под текстом — скрыт на интро (экран 0), виден на всех
+  // экранах статистики, точно так же, как пагинация.
+  contentBlur.classList.toggle('is-visible', currentScreen >= 1);
 }
 
 function goToScreen(target) {
   if (isTransitioning || target === currentScreen || target < 0 || target >= screens.length) return;
+  // Стартовый экран (0) необратим: как только ушли на экран 1, обратно к
+  // клубку не возвращаемся — ни кнопкой «вверх», ни свайпом.
+  if (target === 0 && currentScreen >= 1) return;
   isTransitioning = true;
 
   screens.forEach((screen, i) => screen.classList.toggle('is-active', i === target));
@@ -1974,6 +2020,25 @@ function goToScreen(target) {
     }, GROUP_MS);
   }
 
+  // Зёрна разлетаются из-за кружки синхронно одной transition, с той же
+  // задержкой, что и приземление рюкзака — запускать раньше значило бы,
+  // что они летят ещё до того, как сама группа долетела до места.
+  if (target === 2) {
+    window.setTimeout(() => {
+      stats2Beans.classList.add('is-scattered');
+    }, GROUP_MS);
+  } else {
+    // Сброс без обратного перелёта: экран 2 в этот момент сам уезжает
+    // за кадр по общей группе, так что «собирание» зёрен назад к центру
+    // было бы лишним, отвлекающим движением — снимаем класс мгновенно,
+    // на один кадр отключив transition, а не проигрывая его в обратную сторону.
+    const burstBeans = stats2Beans.querySelectorAll('.stats2-bean--burst');
+    burstBeans.forEach((el) => { el.style.transition = 'none'; });
+    stats2Beans.classList.remove('is-scattered');
+    void stats2Beans.offsetWidth;
+    burstBeans.forEach((el) => { el.style.transition = ''; });
+  }
+
   window.setTimeout(() => {
     isTransitioning = false;
   }, LOCK_MS);
@@ -1983,8 +2048,18 @@ downBlock.addEventListener('click', () => goToScreen(1));
 navDownBtn.addEventListener('click', () => goToScreen(currentScreen + 1));
 navUpBtn.addEventListener('click', () => goToScreen(currentScreen - 1));
 
-/* Свайп на мобилке: вниз — следующий экран, вверх — предыдущий (единственный
-   способ вернуться назад на мобилке — кнопки «назад» в хедере больше нет). */
+/* Тултип над переключателем тем на стартовом экране: сам появляется через
+   500ms, закрывается любым кликом — что по себе, что мимо (кнопки/точки
+   темы под тултипом не перекрыты им, так что клик по ним и закроет
+   подсказку, и сработает как обычно). */
+const introTooltip = document.getElementById('introTooltip');
+window.setTimeout(() => introTooltip.classList.add('is-visible'), 500);
+document.addEventListener('click', () => introTooltip.classList.remove('is-visible'));
+
+/* Свайп на мобилке — механика как в Reels/Shorts: палец тянет контент вверх
+   (deltaY отрицательный) — следующий экран, палец тянет вниз — предыдущий
+   (единственный способ вернуться назад на мобилке — кнопки «назад» в хедере
+   больше нет; экран 0 при этом всё равно недостижим, см. guard в goToScreen). */
 let touchStartY = null;
 card.addEventListener(
   'touchstart',
@@ -2000,9 +2075,9 @@ card.addEventListener(
     const deltaY = event.changedTouches[0].clientY - touchStartY;
     touchStartY = null;
     const SWIPE_THRESHOLD = 40;
-    if (deltaY > SWIPE_THRESHOLD) {
+    if (deltaY < -SWIPE_THRESHOLD) {
       goToScreen(currentScreen + 1);
-    } else if (deltaY < -SWIPE_THRESHOLD) {
+    } else if (deltaY > SWIPE_THRESHOLD) {
       goToScreen(currentScreen - 1);
     }
   },
